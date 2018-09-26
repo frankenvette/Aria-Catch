@@ -1,0 +1,235 @@
+/* GreenPoint TDI - RBP
+
+Development Notes _________________________________________________________________________ Development Notes /*
+v0.0  : 
+
+#If_Defined cDebug
+#EndIf
+
+Development Notes _________________________________________________________________________ Development Notes */
+
+// ________________________________________________________________________________ Module Compile Time Behavior
+//#Define_Constant cDebug            1
+
+//#Enable_Dynamic                                     
+//#Enable_Trace
+#ENABLE_STACK_CHECKING
+#DEFAULT_VOLATILE                      
+#Category                          "34"  //Mixer
+#Output_Shift                      2
+//#Analog_Serial_Expand              OutputsWithParams
+
+// ___________________________________________________________________________________________________ Constants
+#Define_Constant cMaxdsp           50
+#DEFINE_CONSTANT cMaxFileSize      16384
+#Define_Constant cMaxCharData      32
+#DEFINE_CONSTANT cMaxCharFileExt   64
+#DEFINE_CONSTANT cMaxCharFilePath  128
+
+// _____________________________________________________________________________________________________ F1 Help
+//#HINT                              ""
+//#HELP_PDF_FILE ""
+#Help_Begin
+#Help_End
+// ________________________________________________________________________________________ Simpl Input - Output 
+Digital_Input  _SKIP_, _SKIP_                                   ;
+Digital_Input  Read                                             ;
+String_Input   Search_FileExt[64]                               ;
+
+Digital_Output File_Ops_Busy_FB                                 ;
+Digital_Output _SKIP_                                           ;
+String_Output  File_Ops_Message_FB                              ;
+String_Output  File_Path_FB                                     ;
+String_Output  File_Time_FB                                     ;
+String_Output  File_Date_FB                                     ;
+String_Output  _SKIP_                                           ;
+Analog_Output  dsp_Number_Of_Controls_Read_FB                   ;
+String_Output  _SKIP_                                           ;
+String_Output  dsp_Node_ID                                      ;
+String_Output  _SKIP_                                           ;
+String_Output  dsp_Object_Label[cMaxDsp]                        ;
+String_Output  _SKIP_                                           ;
+String_Output  dsp_Object_ID[cMaxDsp]                           ;
+
+// __________________________________________________________________________________________________ Parameters
+String_Parameter  File_Path[cMaxCharFileExt]                    ;
+#BEGIN_PARAMETER_PROPERTIES File_Path
+	propValidUnits       = unitString                           ;
+	propDefaultUnit      = unitString                           ;
+	propDefaultValue     = "\\CF0\\"                            ;
+	propShortDescription = "ex. \\CF0\\"                        ;
+#END_PARAMETER_PROPERTIES
+String_Parameter  Defualt_Search_FileExt[cMaxCharFileExt]       ;
+#BEGIN_PARAMETER_PROPERTIES Defualt_Search_FileExt
+	propValidUnits       = unitString                           ;
+	propDefaultUnit      = unitString                           ;
+	propDefaultValue     = "*dspConfig.xml"                     ;
+	propShortDescription = "Can Use wildcard *"                 ;
+#END_PARAMETER_PROPERTIES
+// _____________________________________________________________________________________________ Global Varibles
+String  g_sFile[cMaxFileSize]                                   ;
+String  g_sPathFileExt[cMaxCharFilePath]                        ;
+String  g_sPathFileExt_Srch[cMaxCharFilePath]                   ;
+
+String  g_sNode[2]                                              ;
+
+// ___________________________________________________________________________________________________ Functions
+String_Function fXML_Attribute(String Data, String Tag, String Attribute)
+{
+	Integer iStart, iCount                                              ;
+    String  sReturn[cMaxCharData]                                       ;
+    String  sAttribute[64]                                              ;
+	String  sTag[64]                                                    ;
+	//<dsp L="MonoGain Zone-01" HQA="0xd2150300015b"/>
+	sTag = "<" + Tag                                                    ;
+	
+	If(Find(sTag, Data))                                          
+	{                                                            
+		iStart = Find(sTag, Data) + Len(sTag)                           ;
+		sAttribute = Attribute + "=\x22"                                ; 
+		
+		If(Find(sAttribute, Data, iStart))
+		{ 
+			iStart  = Find(sAttribute, Data, iStart) + Len(sAttribute)  ;
+			iCount  = Find("\x22", Data, iStart)                        ;
+			iCount  = iCount - iStart                                   ;
+			sReturn = Mid(Data, iStart, iCount)                         ;
+			
+			Return(sReturn)                                             ;
+		}                                             
+		Return("")                                                      ;
+	}
+	Return("")                                                          ;
+}
+
+Function fParse()
+{
+	String   sData[128]                                                                      ;
+	String   sHQA[16]                                                                        ;
+	String   sNode[2]                                                                        ;
+	String   sObj[3]                                                                         ;
+	Integer  i                                                                               ; 
+	
+	i = 0                                                                                    ;
+	If(Find("?>", g_sFile))
+	{
+		sData = Remove("?>", g_sFile)                                                        ; // Strip off XML doc declarations
+	}
+	If(Find("-->", g_sFile))
+	{
+		sData = Remove("-->", g_sFile)                                                       ; // Strip off XML comments, XML comments should be place between doc declarations and root element
+	}
+	If(Find("</dspConfig>", g_sFile) && Find("<dspConfig>", g_sFile))
+	{
+		sData = Remove("<dspConfig>", g_sFile)                                               ; // Trash opening tag
+		While(Find("<obj ", g_sFile))
+		{
+			i = i + 1                                                                        ; //
+			sData = Remove("/>", g_sFile)                                                    ; //
+			If(IsSignalDefined(dsp_Object_ID[i]))
+			{
+				dsp_Object_Label[i]   =         fXML_Attribute(sData, "obj" , "L"    )       ; // 
+				sHQA                  =         fXML_Attribute(sData, "obj" , "HQA"  )       ; //
+				sNode                 =         Chr(HexToI(Mid(sHQA, 3 , 2)))                ; //
+				sNode                 = sNode + Chr(HexToI(Mid(sHQA, 5 , 2)))                ; //
+				sObj                  =         Chr(HexToI(Mid(sHQA, 9 , 2)))                ; //
+				sObj                  = sObj  + Chr(HexToI(Mid(sHQA, 11, 2)))                ; //
+				dsp_Object_ID[i]      = sObj  + Chr(HexToI(Mid(sHQA, 13, 2)))                ; //
+				If(g_sNode <> sNode)
+				{
+					If(Len(g_sNode))
+					{
+						File_Ops_Message_FB = "Error : Parsed Multiple Node Addresses"       ;
+					}
+					Else
+					{
+						g_sNode = sNode ;
+					}					
+				}
+				Delay(10)                                                                    ; //
+				//d2 15 03 00 01 5b
+			}
+		}
+		dsp_Number_Of_Controls_Read_FB = i                                                   ; // 
+		dsp_Node_ID = g_sNode                                                                ; //
+		If(i = 0) File_Ops_Message_FB = "Error : Could not find any <obj Tag"                ; //
+	}
+	Else
+	{
+		File_Ops_Message_FB = "Error : Could not find <dspConfig> </dspConfig> root Tags"    ; //
+	}	
+}	
+
+Integer_Function fRead()
+{
+	Signed_Integer      siHandle, siFind                                                     ;
+	Signed_Long_Integer sliBytes                                                             ;
+	File_Info           FileInfo                                                             ;
+	
+	File_Ops_Busy_FB = On                                                                    ;
+	
+	StartFileOperations()                                                                    ;
+	siFind = FindFirst(g_sPathFileExt_Srch, FileInfo)                                        ;
+	FindClose()                                                                              ;
+	If(siFind = 0)
+	{//Found Directory and File... Just Read the File into SDRAM
+		g_sPathFileExt = File_Path + FileInfo.Name                                           ;
+		siHandle = FileOpen(g_sPathFileExt, _O_RDonly | _O_Text )                            ; 
+		If(siHandle >= 0)
+		{// File Open Successfull... Now Read data
+			sliBytes = FileRead(siHandle, g_sFile, FileLength(siHandle))                     ;
+			FileClose(siHandle)                                                              ;
+			EndFileOperations()                                                              ;
+            If(sliBytes >= 0)
+			{// File Read Successfull... Now Parse it out					
+				fParse()                                                                     ;
+				File_Path_FB = g_sPathFileExt                                                ;
+				File_Time_FB = FileTime(FileInfo)                                            ;
+				File_Date_FB = FileDate(FileInfo, 1)                                         ;					
+				File_Ops_Busy_FB = Off                                                       ;
+				Return(1)                                                                    ;
+			}
+			Else
+			{
+				MakeString(File_Ops_Message_FB, "File Read Fail: Err=%ld", sliBytes)         ;
+				File_Ops_Busy_FB = Off                                                       ;
+				Return(0)                                                                    ;
+			}
+		}
+		Else
+		{
+			FileClose(siHandle)                                                              ;
+			EndFileOperations()                                                              ;
+			MakeString(File_Ops_Message_FB, "File Open Fail: Handle Err=%d", siHandle)       ;
+			File_Ops_Busy_FB = Off                                                           ;
+			Return(0)                                                                        ;
+		}
+	}
+	Else
+	{	
+		EndFileOperations()                                                                  ;
+		MakeString(File_Ops_Message_FB,"File Not Found: %s", g_sPathFileExt_Srch)            ;
+		File_Ops_Busy_FB = Off                                                               ;
+		Return(0)                                                                            ;
+	}
+}
+
+// ________________________________________________________________________________________________ Simpl Events
+
+Push Read
+{
+	If(!File_Ops_Busy_FB)   fRead()                                                          ;	
+}
+Change Search_FileExt
+{
+	If(Len(Search_FileExt)) g_sPathFileExt_Srch = File_Path + Search_FileExt                 ;
+}
+// ________________________________________________________________________________________________ Start Up Code
+Function Main() 
+{
+//	Integer i                                                                                  ;
+	g_sPathFileExt_Srch = File_Path + Defualt_Search_FileExt                                 ;	
+	g_sNode = ""                                                                             ;
+//	WaitForInitializationComplete()                                                            ;
+	
+}

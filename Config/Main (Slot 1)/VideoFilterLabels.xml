@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>
+
+<VideoFilterLabels xmlns="http://www.greenpointtdi.com/cfgXML">
+	<!--GP Mediatune Filter Strings-->
+	<Label Input="1">Sports</Label>
+	<Label Input="2">Basketball</Label>
+	<Label Input="3">tockey</Label>
+	<Label Input="4">Baseball</Label>
+	<Label Input="5">Soccer</Label>
+	<Label Input="6">Football</Label>
+	<Label Input="7">Golf</Label>
+	<Label Input="8">News</Label>
+	<Label Input="9">Politics</Label>
+	<Label Input="10"></Label>
+</VideoFilterLabels>

@@ -1,0 +1,77 @@
+/* GreenPoint TDI 
+
+Development Notes _________________________________________________________________________ Development Notes /*
+v0.0  : 
+
+#If_Defined cDebug
+	MakeString(Debug, "", ) ;
+#EndIf
+
+Development Notes _________________________________________________________________________ Development Notes */
+
+// ________________________________________________________________________________ Module Compile Time Behavior
+#ENABLE_STACK_CHECKING
+#DEFAULT_VOLATILE
+//#ENABLE_DYNAMIC                                     
+//#ENABLE_TRACE
+//#DEFINE_CONSTANT cDebug            1
+#CATEGORY                          "46" "Belterra" //Misc
+//#Output_Shift                      2
+//#Analog_Serial_Expand              OutputsWithParams
+
+// ___________________________________________________________________________________________________ Constants
+#DEFINE_CONSTANT cMaxLabelSize     64
+#DEFINE_CONSTANT cMaxZones         253
+ 
+// _____________________________________________________________________________________________________ F1 Help
+//#HINT                              ""
+//#HELP_PDF_FILE ""
+#Help_Begin
+#Help_End
+
+// ________________________________________________________________________________________ Simpl Input - Output 
+// Digital_Input _SKIP_, _SKIP_                                   ;
+String_Input Label[cMaxZones,cMaxZones][cMaxLabelSize]          ;
+
+String_Output Label_FB[cMaxZones,cMaxZones] ;
+// __________________________________________________________________________________________________ Parameters
+//Integer_Parameter                                             ;
+String_Parameter  Prefix[cMaxZones, cMaxZones][cMaxLabelSize]   ;
+/*
+#BEGIN_PARAMETER_PROPERTIES
+	propValidUnits   = unitDecimal                              ;
+	propDefaultUnit  = unitDecimal                              ;
+	propList         = { 0d      ,"" }                          ,
+					   { 1d      ,"" }                          ,					   
+					   { 2d      ,"" }                          ;
+#END_PARAMETER_PROPERTIES
+*/
+#BEGIN_PARAMETER_PROPERTIES Prefix
+	propValidUnits       = unitString                           ;
+	propDefaultUnit      = unitString                           ;
+	propShortDescription = ""                                   ;
+#END_PARAMETER_PROPERTIES
+
+// _____________________________________________________________________________________________ Global Varibles
+
+// ___________________________________________________________________________________________________ Functions
+
+// ________________________________________________________________________________________________ Simpl Events
+Change Label
+{
+	Integer i;
+	
+	i = GetLastModifiedArrayIndex() ;
+	
+	MakeString(Label_FB[i], "%s%s", Prefix[i], Label[i] ) ;
+}
+
+// ________________________________________________________________________________________________ Start Up Code
+Function Main() 
+{
+//	Integer i                                                                      ;
+//  IsSignalDefined() ;
+	
+//	WaitForInitializationComplete()                                                ;
+	
+}

@@ -1,0 +1,154 @@
+/* GreenPoint TDI 
+
+Development Notes _________________________________________________________________________ Development Notes /*
+v0.0  : 
+
+#If_Defined cDebug
+#EndIf
+
+Development Notes _________________________________________________________________________ Development Notes */
+
+// ________________________________________________________________________________ Module Compile Time Behavior
+//#Define_Constant cDebug            1
+
+//#Enable_Dynamic                                     
+//#Enable_Trace
+#ENABLE_STACK_CHECKING
+#DEFAULT_VOLATILE                      
+#Category                            "46"  "StadiumVision"
+#Output_Shift                        2
+//#Analog_Serial_Expand              OutputsWithParams
+
+// ___________________________________________________________________________________________________ Constants
+#Define_Constant cMaxPinSize         32
+//#Define_Constant cMaxChar          32
+
+// ____________________________________________________________________________________________________________ Libraries
+#IncludePath "..\\..\\stadiumVision\\stadiumVision\\bin"
+#User_SimplSharp_Library "stadiumVision"
+
+// _____________________________________________________________________________________________________ F1 Help
+//#HINT                              ""
+//#HELP_PDF_FILE ""
+#Help_Begin
+GreenPoint TDI   www.greenpointtdi.com
+
+#Help_End
+// ________________________________________________________________________________________ Simpl Input - Output 
+Digital_Input  _SKIP_ ;
+Digital_Input  Initialize ;
+Digital_Input  printChannels ;
+Analog_Input   _SKIP_, _SKIP_, _SKIP_ ;
+Analog_Input   _SKIP_, _SKIP_, _SKIP_ ;
+Analog_Input   _SKIP_, _SKIP_ ;
+String_Input   Pin_F[cMaxPinSize] ;
+Analog_Input   _SKIP_, _SKIP_, _SKIP_ ;
+Analog_Input   _SKIP_;
+Analog_Input   Channel_List_Select ;
+//Analog_Input   Channel_Select ;
+
+//Digital_Output Busy_FB ;
+String_Output  Debug_FB ;
+String_Output  Message_FB ;
+String_Output  _SKIP_;
+String_Output  Filter_String_FB ;
+String_Output  _SKIP_ ;
+String_Output  Group_Id_FB ;
+String_Output  Group_Name_FB ;
+String_Output  Group_External_Id_FB ;
+String_Output  _SKIP_ ;
+String_Output  Pin_F_FB ;
+Analog_Output  Ack_Nck_FB ;
+String_Output  _SKIP_ ;
+String_Output  Channel_List_Name_FB ;
+Analog_Output  Channel_Count_FB ;
+String_Output  Channel_Id_FB ;
+String_Output  Channel_Name_FB ;
+String_Output  Channel_Description_FB ;
+String_Output  Channel_Short_Name_FB ;
+String_Output  Channel_Long_Name_FB ;
+String_Output  Channel_Logical_FB ;
+String_Output  Channel_Physical_FB ;
+String_Output  Channel_Favorite_FB ;
+String_Output  Channel_Favorite_Order_FB ;
+String_Output  Channel_Source_Id_FB ;
+String_Output  Channel_Logo_Small_FB ;
+String_Output  Channel_Logo_Medium_FB ;
+String_Output  Channel_Logo_Large_FB ;
+
+// __________________________________________________________________________________________________ Parameters
+String_Parameter Default_Pin_Fixed[cMaxPinSize] ;
+#BEGIN_PARAMETER_PROPERTIES Default_Pin_Fixed
+	propValidUnits       = unitString ;
+	propDefaultUnit      = unitString ;
+	propShortDescription = "Director Fixed Pin for Suite." ;
+#END_PARAMETER_PROPERTIES
+
+// _____________________________________________________________________________________________ Global Varibles
+channelList this;
+
+// _____________________________________________________________________________________________ Sharp Functions
+CallBack Function cbf_Debug_FB(String s) { Debug_FB = s ;}
+CallBack Function cbf_Message_FB(String s) { Message_FB = s ;}
+
+CallBack Function cbf_Filter_String_FB(String s) { Filter_String_FB = s ;}
+
+CallBack Function cbf_Group_Id_FB(String s) { Group_Id_FB = s ;}
+CallBack Function cbf_Group_Name_FB(String s) { Group_Name_FB = s ;}
+CallBack Function cbf_Group_External_Id_FB(String s) { Group_External_Id_FB = s ;}
+
+CallBack Function cbf_Pin_F_FB(String s) { Pin_F_FB = s ;}
+CallBack Function cbf_Channel_List_Name_FB(String s) { Channel_List_Name_FB = s ;}
+CallBack Function cbf_Channel_Count_FB(Integer s) { Channel_Count_FB = s ;}
+
+EventHandler eList_Select_FB(ListSelectEventArgs s)
+{
+	Channel_Id_FB = s.Id ;
+	Channel_Name_FB = s.Name ;
+	Channel_Description_FB = s.Description ;
+	Channel_Short_Name_FB = s.ShortName ;
+	Channel_Long_Name_FB = s.LongName ;
+	Channel_Logical_FB = s.LogicalChannel ;
+	Channel_Physical_FB = s.PhysicalChannel ;
+	Channel_Favorite_FB = s.Favorite ;
+	Channel_Favorite_Order_FB = s.FavoriteOrder ;
+	Channel_Source_Id_FB = s.SourceId ;
+	Channel_Logo_Small_FB = s.LogoSmall ;
+	Channel_Logo_Medium_FB = s.LogoMedium ;
+	Channel_Logo_Large_FB = s.LogoLarge ;
+	
+}
+
+CallBack Function cbf_Ack_Nak_FB(Integer s) { Ack_Nck_FB = s ;}
+
+// ____________________________________________________________________________________________ Simpl+ Functions
+// ________________________________________________________________________________________________ Simpl Events
+Push Initialize { this.init() ; }
+Push printChannels { this.printChannelList() ; }
+Change Pin_F { this.pin_F = Pin_F ; }
+Change Channel_List_Select { this.List_Select(Channel_List_Select) ; }
+
+// ________________________________________________________________________________________________ Start Up Code
+Function Main() 
+{	
+	RegisterDelegate(this, Message_, cbf_Message_FB);
+	RegisterDelegate(this, Debug_, cbf_Debug_FB);
+	
+	RegisterDelegate(this, Filter_String_,cbf_Filter_String_FB) ;
+			
+	RegisterDelegate(this, Group_Id_, cbf_Group_Id_FB);
+	RegisterDelegate(this, Group_Name_, cbf_Group_Name_FB);
+	RegisterDelegate(this, Group_External_Id_, cbf_Group_External_Id_FB);
+	
+	RegisterDelegate(this, Pin_F_, cbf_Pin_F_FB);
+	RegisterDelegate(this, Ack_Nak_, cbf_Ack_Nak_FB);
+	
+	RegisterDelegate(this, List_Name_, cbf_Channel_List_Name_FB);
+	RegisterDelegate(this, Channel_Count_, cbf_Channel_Count_FB);
+	
+	RegisterEvent(channelList, onList_Select_Change, eList_Select_FB) ;
+	
+	
+	this.pin_F = Default_Pin_Fixed ;
+
+}

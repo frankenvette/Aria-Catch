@@ -1,0 +1,111 @@
+/* GreenPoint TDI 
+
+Development Notes _________________________________________________________________________ Development Notes /*
+v0.1  : Added digital Debug_HTTPS to turn "verbose" on/off, this prints unencrypted HTTPS to the error log for debugging
+v0.0  : Release
+		
+#If_Defined cDebug
+#EndIf
+
+Development Notes _________________________________________________________________________ Development Notes */
+
+// ________________________________________________________________________________ Module Compile Time Behavior
+//#Define_Constant cDebug            1
+
+//#Enable_Dynamic                                     
+//#Enable_Trace
+#ENABLE_STACK_CHECKING
+#DEFAULT_VOLATILE                      
+#Category                            "46"  "StadiumVision"
+#Output_Shift                        2
+//#Analog_Serial_Expand              OutputsWithParams
+
+// ___________________________________________________________________________________________________ Constants
+#Define_Constant cMaxPinSize         32
+//#Define_Constant cMaxChar          32
+
+// ___________________________________________________________________________________________________ Libraries
+#IncludePath "..\\..\\stadiumVision\\stadiumVision\\bin"
+#User_SimplSharp_Library "stadiumVision"
+
+// _____________________________________________________________________________________________________ F1 Help
+//#HINT                              ""
+//#HELP_PDF_FILE ""
+#Help_Begin
+#Help_End
+// ________________________________________________________________________________________ Simpl Input - Output 
+Digital_Input  _SKIP_ ;
+Digital_Input  Debug_HTTPS ;
+Digital_Input  Initialize ;
+Digital_Input  Q_Count, Q_Clear, Q_Check ;
+String_Input   /*Command[255]*/ _SKIP_ ;
+String_Input   _SKIP_ ;
+String_Input   Ip[16] ;
+String_Input   _SKIP_ ;
+//Buffer_Input   [cMaxChar] ;
+
+Analog_Output  Initialize_FB ;
+String_Output  Debug_FB ;
+String_Output  Message_FB ;
+Analog_Output  Q_Count_FB, _SKIP_ ;
+String_Output  Ip_FB ; // This needs to be global to the namespace
+String_Output  _SKIP_ ;
+
+
+
+// __________________________________________________________________________________________________ Parameters
+String_Parameter  Default_Ip[16] ;
+#BEGIN_PARAMETER_PROPERTIES Default_Ip
+	propValidUnits       = unitString        ;
+	propDefaultUnit      = unitString        ;
+	propDefaultValue     = "10.211.141.100"	 ;
+	propShortDescription = "Director Server IP Address" ;
+#END_PARAMETER_PROPERTIES
+
+// _____________________________________________________________________________________________ Global Varibles
+//Integer g_i ;
+//String  g_s[] ;
+
+// _____________________________________________________________________________________________ Sharp Functions
+CallBack Function cbf_Debug_FB(String s) { Debug_FB = s ; }
+CallBack Function cbf_Message_FB(String s) { Message_FB = s ; }
+
+CallBack Function cbf_Ip_FB(String s) { Ip_FB = s ; }
+
+CallBack Function cbf_Init_FB(Integer i) { Initialize_FB = i ; }
+CallBack Function cbf_Qcount_FB(Integer i) { Q_Count_FB = i ; }
+// ____________________________________________________________________________________________ Simpl+ Functions
+/*
+Function f()
+{
+//	Integer i ;
+	
+}
+*/
+
+// ________________________________________________________________________________________________ Simpl Events
+Push    Debug_HTTPS { director.verbose(1); }
+Release Debug_HTTPS { director.verbose(0); }
+Push Initialize { director.init(); }
+Push Q_Count { director.Q_Count(); }
+Push Q_Clear { director.Q_Clear(); }
+Push Q_Check { director.Q_Check(); }
+/*
+Change Command { director.send(Command); }
+*/
+Change Ip { director.Ip = Ip ; }
+
+// _______________________________________________________________________________________________ Start Up Code
+Function Main() 
+{	
+	RegisterDelegate(director, Message_, cbf_Message_FB);
+	RegisterDelegate(director, Debug_, cbf_Debug_FB);
+	RegisterDelegate(director, Init_, cbf_Init_FB);	
+	RegisterDelegate(director, Ip_, cbf_Ip_FB);
+	RegisterDelegate(director, Q_Count_, cbf_Qcount_FB);
+	
+	director.Ip = Default_Ip ;
+	director.init();
+//	WaitForInitializationComplete() ;
+	
+}

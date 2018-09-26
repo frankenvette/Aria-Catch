@@ -1,0 +1,28 @@
+<?xml version="1.0"?>
+<HTMLConfig>
+<obj>
+	<Font FS="20" FF="Arial" FC="#ffffff" SP="<B>"/>
+	<CIPS T="S" SJ="101" DT="Audio Room" AT=""/>
+	<Format FT="<BR>"/>
+	<Tabstop FTS="" type="0"/>
+</obj>
+<obj>
+	<Font FS="18" FF="Arial" FC="#ffff00" SP="<B>"/>
+	<CIPS T="S" SJ="301" DT="No Source" AT=""/>
+	<Format FT="<BR>"/>
+	<Tabstop FTS="" type="1"/>
+</obj>
+<obj>
+	<Font FS="18" FF="Arial" FC="#ff0000" SP="<B>"/>
+	<CIPS T="D" SJ="301" DT="Muted" AT="&nbsp;&nbsp;"/>
+	<Format FT=""/>
+	<Tabstop FTS="" type="3"/>
+</obj>
+<obj>
+	<Font FS="20" FF="Arial" FC="#ff0000" SP="<B>"/>
+	<CIPS T="A" SJ="301" DT="%65535.0p" AT="%&nbsp;&nbsp;"/>
+	<Format FT=""/>
+	<Tabstop FTS="" type="3"/>
+</obj>
+
+</HTMLConfig>

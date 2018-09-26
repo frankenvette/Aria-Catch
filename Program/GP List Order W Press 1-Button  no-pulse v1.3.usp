@@ -1,0 +1,188 @@
+//GreenPoint TDI - SAS
+#Default_Volatile
+#CATEGORY "32" // Miscellaneous                    
+#Define_Constant cMaxlistitems     	5
+#Define_Constant cMaxsize     		32
+#Define_Constant cMaxsizeHTML     	612
+#Define_Constant cMaxConfig    		99
+#OUtput_Shift                       1                  
+
+// _____________________________________________________________________________________________________ F1 Help
+//#HINT                              ""
+//#HELP_PDF_FILE ""
+#Help_Begin
+ This Module will order list from top to bottom based on xml config. Includes Press and release Digitals
+inputs. 
+#Help_End
+
+                                
+Digital_Input  	_SKIP_, Check																;
+Digital_Input 	_SKIP_,Btn_press[cMaxConfig],_Skip_, Btn_Fb[cMaxConfig]						;
+
+String_Input   	_SKIP_, _SKIP_ ,from_module$[612],_skip_,_skip_,att_label[cMaxConfig][cMaxsizeHTML]	;
+
+analog_input 	_Skip_ ,att_analog[cMaxConfig]												;
+
+digital_output 	busy_fb																		;
+
+String_output 	_Skip_,Message_FB															;
+Analog_Output  	_SKIP_, list_num;
+digital_output 	_Skip_, Press_out[cMaxConfig],_skip_,List_FB[cMaxConfig]					;
+
+String_output 	_Skip_,list_text[cMaxConfig]												;
+Analog_output 	_Skip_ ,List_analog[cMaxConfig]												;
+analog_output 	_SkIP_, order[cMaxConfig]													;
+
+
+
+// __________________________________________________________________________________________________ Parameters
+	    
+// _____________________________________________________________________________________________ Global Varibles
+Integer g_iBusy ;
+Integer g_iEnable ;
+// _____________________________________________________________________________________________ Functions
+
+Function fOrder()
+{
+	Integer i,j ;		
+	busy_fb = 1;
+	if(g_iBusy = 0)
+	{
+		g_iBusy = 1;
+		try
+		{
+			for(i = 1 to cMaxConfig)
+			{
+
+				if(order[i] > 0)
+				{
+					list_text[i] = att_label[order[i]]	  ;
+
+					List_FB[i] = Btn_Fb[order[i]] ; 
+					
+					If(list_analog[i] != att_analog[order[i]])
+					{
+						list_analog[i] = att_analog[order[i]] ;
+					}
+				}
+			}
+		}
+		catch
+		{
+			Message_FB = "Exception in fOrder " + GetExceptionMessage() ;			
+		}
+		g_iBusy = 0;
+		busy_fb = 0;
+	}
+	else
+	{
+		Message_FB = "fOrder Ignored busy";
+	}
+	
+	g_iEnable = 1;
+}
+
+Function fParse()
+{
+	integer k                              ;
+	string temp[384]                       ;
+	
+	temp = from_module$	                   ;
+	k = 0                                  ;
+			
+	while(Find(",", temp) > 0)
+	{
+		k = k + 1                          ;
+		order[k] = atoi(remove(",", temp)) ;
+	}
+    
+    k = k + 1                              ;
+    order[k] = AtoI(temp)                  ;
+    
+	list_num = k                           ;
+
+}
+
+Function fBtn_press(integer Btn_index)
+{
+	if(order[Btn_index] > 0) 
+	{
+        pulse(20, Press_out[order[Btn_index]]) ;		
+	}
+	else
+	{
+		Message_FB = "Button press function not Mapped or mapped Zero" ;
+	}
+}
+
+Function fBtn_Fb(integer Btn_index, Integer Btn_state)
+{
+	Integer j;
+	
+	For(j = 1 to cMaxconfig) 
+	{
+		if( order[j] = Btn_index)
+		{
+			List_FB[j] = Btn_state ;
+			break ;
+		}
+	}
+	if(j > cMaxconfig)
+	{
+		Message_FB = "FB function not Mapped or mapped Zero" ;
+	}
+}
+
+
+// _____________________________________________________________________________________________ Simpl Windows Events
+
+Change From_module$
+{
+	if(Len(From_module$))
+	{
+		fParse() ;
+		delay(50);
+		fOrder() ;		
+	}
+}
+
+Release Check  { fOrder() ; }
+
+/////////////////// Presses Begin
+
+Push Btn_press
+{
+	if(g_iEnable)		
+	{
+		fBtn_press(getlastmodifiedarrayindex()) ;
+	}
+}
+
+//////////////////////// Presses End 
+
+Push Btn_Fb
+{
+	if(g_iEnable)		
+	{    
+		delay(20) ;      
+    	fBtn_Fb(getlastmodifiedarrayindex(), 1) ;    	
+	}
+}
+
+RELEASE Btn_Fb
+{	    
+	if(g_iEnable)		
+	{          
+    	delay(50) ;
+    	fBtn_Fb(getlastmodifiedarrayindex(), 0) ;    	
+	}
+}
+
+// _____________________________________________________________________________________________ Startup Code
+Function Main()
+{
+	g_iBusy = 0;
+	g_iEnable = 0;	
+}
+
+

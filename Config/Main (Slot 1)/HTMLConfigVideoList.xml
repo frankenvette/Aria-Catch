@@ -1,0 +1,39 @@
+<?xml version="1.0"?>
+<HTMLConfig>
+<obj>
+	<Font FS="20" FF="Arial" FC="#FFFFFF" SP="<B>"/>
+	<CIPS T="S" SJ="501" DT=""/>
+	<Format FT="<BR>"/>
+	<Tabstop FTS="" type="0"/>
+</obj>
+<obj>
+	<Font FS="18" FF="Arial" FC="#F9FC9B" SP="<B>"/>
+	<CIPS T="S" SJ="2101" DT=""/>
+	<Format FT=""/>
+	<Tabstop FTS="35" type="1"/>
+</obj>
+<obj>
+	<Font FS="18" FF="Arial" FC="#F9FC9B" SP="<B>"/>
+	<CIPS T="S" SJ="2201" DT=""/>
+	<Format FT="<BR>"/>
+	<Tabstop FTS="" type="0"/>
+</obj>
+<obj>
+	<Font FS="13" FF="Arial" FC="#ffffff" SP="<B>"/>
+	<CIPS T="S" SJ="2301" DT=""/>
+	<Format FT="<BR>"/>
+	<Tabstop FTS="" type="0"/>
+</obj>
+<obj>
+	<Font FS="13" FF="Arial" FC="#C19A6B" SP="<B>"/>
+	<CIPS T="S" SJ="" DT="Next:" AT=""/>
+	<Format FT="<BR>"/>
+	<Tabstop FTS="" type="0"/>
+</obj>
+<obj>
+	<Font FS="13" FF="Arial" FC="#ffffff" SP="<B>"/>
+	<CIPS T="S" SJ="2401" DT=""/>
+	<Format FT=""/>
+	<Tabstop FTS="" type="0"/>
+</obj>
+</HTMLConfig>

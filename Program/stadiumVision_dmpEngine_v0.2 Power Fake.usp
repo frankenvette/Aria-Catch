@@ -1,0 +1,263 @@
+/* GreenPoint TDI 
+
+Development Notes _________________________________________________________________________ Development Notes /*
+v0.2  : Removed try catches around the simpl events
+		refactored simpl events
+		added inputs
+v0.1  : National Harbour field version that introduced the power and channel hacks 
+
+#If_Defined cDebug
+#EndIf
+
+Development Notes _________________________________________________________________________ Development Notes */
+
+// ________________________________________________________________________________ Module Compile Time Behavior
+//#Define_Constant cDebug            1
+
+//#Enable_Dynamic                                     
+//#Enable_Trace
+#ENABLE_STACK_CHECKING
+#DEFAULT_VOLATILE                      
+#Category                            "46"  "StadiumVision"
+#Output_Shift                        3
+//#Analog_Serial_Expand              OutputsWithParams
+
+// ___________________________________________________________________________________________________ Constants
+#Define_Constant cMaxPinSize         32
+//#Define_Constant cMaxChar          32
+
+// ____________________________________________________________________________________________________________ Libraries
+#IncludePath "..\\..\\stadiumVision\\stadiumVision\\bin"
+#User_SimplSharp_Library "stadiumVision"
+
+// _____________________________________________________________________________________________________ F1 Help
+//#HINT                              ""
+//#HELP_PDF_FILE ""
+#Help_Begin
+#Help_End
+// ________________________________________________________________________________________ Simpl Input - Output 
+Digital_Input  _SKIP_, _SKIP_, _SKIP_, _SKIP_, _SKIP_ ;
+//Analog_Input ;
+String_Input   Command[255] ;
+String_Input   _SKIP_ ;
+String_Input   Dmp_Id[16] ;
+String_Input   _SKIP_ ;
+String_Input   _SKIP_, _SKIP_, _SKIP_ ;
+String_Input   _SKIP_ ;
+String_Input   Pin_F[cMaxPinSize] ;
+String_Input   _SKIP_, _SKIP_,_SKIP_, _SKIP_ ;
+String_Input   Channel_Tune$[16] ;
+Analog_Input   Channel_Tune ;
+Analog_Input   Volume ;
+Analog_Input   _SKIP_ ;
+String_Input   Input_by_Name[12];
+
+//Digital_Output Busy_FB ;
+String_Output  Debug_FB ;
+String_Output  Message_FB ;
+String_Output  _SKIP_, _SKIP_ ;
+String_Output  Dmp_Id_FB ; 
+String_Output  _SKIP_ ;
+String_Output  Group_Id_FB ;
+String_Output  Group_Name_FB ;
+String_Output  Group_External_Id_FB ;
+String_Output  _SKIP_ ;
+String_Output  Pin_F_FB ;
+String_Output  _SKIP_ ;
+Analog_Output  Ack_Nck_FB ;
+Analog_Output  _SKIP_ ;
+Analog_Output  Power_FB ;
+Analog_Output  _SKIP_ ;
+Analog_Output  Channel_Tune_FB ;
+Analog_Output  Volume_FB ;
+Analog_Output  Volume_Mute_FB ;
+Analog_Output  Input_FB ;
+Analog_Output  CC_FB ;
+String_Output  CC_Option_FB ;
+Analog_Output  Channel_Of_Last_Direct_Tune_FB ;
+
+// __________________________________________________________________________________________________ Parameters
+String_Parameter Default_Pin_Fixed[cMaxPinSize] ;
+#BEGIN_PARAMETER_PROPERTIES Default_Pin_Fixed
+	propValidUnits       = unitString                           ;
+	propDefaultUnit      = unitString                           ;
+	propShortDescription = "."       ;
+#END_PARAMETER_PROPERTIES
+
+String_Parameter Default_Dmp_Id[6] ;
+#BEGIN_PARAMETER_PROPERTIES Default_Dmp_Id
+	propValidUnits       = unitString                           ;
+	propDefaultUnit      = unitString                           ;
+	propShortDescription = "."       ;
+#END_PARAMETER_PROPERTIES
+
+String_Parameter Default_Info_Banner_Duration[3] ;
+#BEGIN_PARAMETER_PROPERTIES Default_Info_Banner_Duration
+	propValidUnits       = unitString                           ;
+	propDefaultUnit      = unitString                           ;
+	propShortDescription = "In Seconds, Range 1~900, Default=5" ;
+#END_PARAMETER_PROPERTIES
+
+// _____________________________________________________________________________________________ Global Varibles
+dmp this;
+
+Integer g_iChannel_Of_Last_Direct_Tune,iCurrentChan ;
+
+// _____________________________________________________________________________________________ Sharp Functions
+CallBack Function cbf_Debug_FB(String s) { Debug_FB = s ;}
+CallBack Function cbf_Message_FB(String s) { Message_FB = s ;}
+
+CallBack Function cbf_Dmp_Id_FB(String s) { Dmp_Id_FB = s ;}
+
+CallBack Function cbf_Group_Id_FB(String s) { Group_Id_FB = s ;}
+CallBack Function cbf_Group_Name_FB(String s) { Group_Name_FB = s ;}
+CallBack Function cbf_Group_External_Id_FB(String s) { Group_External_Id_FB = s ;}
+
+CallBack Function cbf_Pin_F_FB(String p) { Pin_F_FB = p ;}
+
+CallBack Function cbf_Power_FB(Integer s){} //Hack..Only allowed Power feedback on startup
+CallBack Function cbf_Channel_FB(Integer s) {  
+												iCurrentChan=s;
+												if(Power_FB =0)
+												{ Channel_Tune_FB = 1 ;}
+												else{Channel_Tune_FB = iCurrentChan ;}
+											}//Hack
+CallBack Function cbf_Volume_FB(Integer s) { Volume_FB = s ;}
+CallBack Function cbf_Volume_Mute_FB(Integer s) { Volume_Mute_FB = s ;}
+CallBack Function cbf_Input_FB(Integer s) { Input_FB = s ;}
+CallBack Function cbf_CC_FB(Integer s) { CC_FB = s ;}
+CallBack Function cbf_CC_Option_FB(String s) { CC_Option_FB = s ;}
+
+CallBack Function cbf_Ack_Nak_FB(Integer s)
+{ 
+	If(g_iChannel_Of_Last_Direct_Tune < 65535)// HACK
+	{
+		Channel_Of_Last_Direct_Tune_FB = g_iChannel_Of_Last_Direct_Tune ;
+	}
+	Ack_Nck_FB = s ;
+}
+
+// ____________________________________________________________________________________________ Simpl+ Functions
+Function fCheck_Power_On()
+{
+	if(Power_FB = 0)
+	{
+		delay(20);
+		this.send("control/player/power/on") ;
+		Power_FB = 1;// HACK
+		delay(20);
+    	this.send("control/player/power/on") ;
+	}	
+}
+Function fPower_Off()
+{
+	g_iChannel_Of_Last_Direct_Tune = 1;//HAck
+	this.send("control/player/power/off") ;
+	Power_FB = 0;// HACK
+	Channel_Tune_FB = 1;// HACK
+	delay(20);
+	this.send("control/player/power/off") ;
+}
+Function fTune_Send()
+{
+	string s[64] ;
+	s = "control/player/channel/" + ItoA(g_iChannel_Of_Last_Direct_Tune) ;
+	this.send(s) ;	
+}
+// ________________________________________________________________________________________________ Simpl Events
+Change Command
+{
+	g_iChannel_Of_Last_Direct_Tune = 65535;// HACK
+	this.send(Command);
+}
+
+Change Channel_Tune$
+{
+	If(Len(Channel_Tune$))
+	{
+		g_iChannel_Of_Last_Direct_Tune = AtoI(Channel_Tune$) ;
+		
+		If(g_iChannel_Of_Last_Direct_Tune > 1)
+		{
+			fTune_Send();
+			fCheck_Power_On();			
+		}
+		Else if(AtoI(Channel_Tune$) = 1)
+		{
+			fPower_Off();
+		}
+	}	
+}
+
+
+Change Channel_Tune
+{
+	If(Channel_Tune > 1)
+	{
+		g_iChannel_Of_Last_Direct_Tune = Channel_Tune ;// HACK
+		fTune_Send();
+		fCheck_Power_On();
+	}
+	Else if(Channel_Tune = 1)
+	{
+		fPower_Off();		
+	}	
+}
+
+Change Volume
+{
+	string s[64]  ;
+	If(Volume < 101)
+	{
+		g_iChannel_Of_Last_Direct_Tune = 0;// HACK
+		s = "control/player/volume/" + ItoA(Volume) ;
+		this.send(s) ;	
+	}
+	Else
+	{
+		MakeString(Message_FB, "Ignored Volume: %u, Out of Range 0-100", Volume) ;
+	}
+}
+Change Input_by_Name
+{
+	if(Len(Input_by_Name))
+	{
+		this.send_input(Input_by_Name);
+	}
+}
+Change Dmp_Id { this.dmp_id = Dmp_Id ; }
+Change Pin_F { this.pin_F = Pin_F ; }
+
+// ________________________________________________________________________________________________ Start Up Code
+Function Main() 
+{
+	Power_FB = 1;
+	
+	// Check Dmp_Id ---> or set if a parameter in simpl+ is used
+	this.dmp_id = Default_Dmp_Id ;
+	this.pin_F = Default_Pin_Fixed ;
+	RegisterDelegate(this, Message_, cbf_Message_FB);
+	RegisterDelegate(this, Debug_, cbf_Debug_FB);
+	
+	RegisterDelegate(this, Dmp_Id_, cbf_Dmp_Id_FB);
+		
+	RegisterDelegate(this, Group_Id_, cbf_Group_Id_FB);
+	RegisterDelegate(this, Group_Name_, cbf_Group_Name_FB);
+	RegisterDelegate(this, Group_External_Id_, cbf_Group_External_Id_FB);
+	
+	RegisterDelegate(this, Pin_F_, cbf_Pin_F_FB);
+	
+	RegisterDelegate(this, Power_, cbf_Power_FB);
+	RegisterDelegate(this, Channel_, cbf_Channel_FB);
+	RegisterDelegate(this, Volume_, cbf_Volume_FB);
+	RegisterDelegate(this, Volume_Mute_, cbf_Volume_Mute_FB);
+	RegisterDelegate(this, Input_, cbf_Input_FB);
+	RegisterDelegate(this, CC_, cbf_CC_FB);
+	RegisterDelegate(this, CC_Option_, cbf_CC_Option_FB);
+	
+	RegisterDelegate(this, Ack_Nak_, cbf_Ack_Nak_FB);
+	//Pin_F_FB = this.pin_F ;
+			
+//	WaitForInitializationComplete() ;
+	
+}

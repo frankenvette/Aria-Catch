@@ -1,0 +1,47 @@
+//GreenPoint TDI 
+
+/* _____________________ Development Notes ___________________________________________________________________
+v1.0  : 
+
+/* _____________________ Development Notes _________________________________________________________________*/
+// _____________________ Module Compile Time Behavior ________________________________________________________
+#CATEGORY                "10" // Serial
+//#Output_Shift            3
+#define_constant cDev 20
+#ENABLE_STACK_CHECKING
+#DEFAULT_VOLATILE                      
+
+#Help_Begin
+This module is intended for use with a GreenPoint CF list for room temp and setpoint feedback
+
+#Help_End
+
+// _____________________ Input - Output ______________________________________________________________________
+Analog_Input  I[cDev]                                                 ;
+String_Output A[cDev]                                                 ;
+
+// _____________________ Parameters __________________________________________________________________________
+/*String_Parameter Prefix[120]                                    ;
+String_Parameter Suffix[120]                                    ;
+#BEGIN_PARAMETER_PROPERTIES Prefix, Suffix
+	propValidUnits       = unitString                           ;
+	propDefaultUnit      = unitString                           ;
+	propShortDescription = ""                                   ;
+#END_PARAMETER_PROPERTIES*/
+
+// _____________________ Global Varibles _____________________________________________________________________
+// _____________________ Functions ___________________________________________________________________________
+// _____________________ Events ______________________________________________________________________________
+Change I
+{
+	integer j;
+
+	j=getlastmodifiedarrayindex();
+	
+	makestring(A[j],"%s",left(itoa(I[j]),3))           ;     
+}
+
+// _____________________ Start Up Code ______________________________________________________________________
+Function Main() 
+{
+}

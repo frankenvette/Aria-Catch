@@ -1,0 +1,280 @@
+/* GreenPoint TDI 
+
+Development Notes _________________________________________________________________________ Development Notes /*
+v0.4    Changed HTML font sizes to accept fonts up to 999 (3-digits)
+v0.3    Configurable HTML
+v0.2	Slimmed down HTML overhead by cutting out flexibility of html formatting
+v0.1	Added custom attributes to wrapper after aggregation of config and mediaTune data.
+		Changed reference from Core to Remote
+v0.0    Getting channel metadata by index of of the list provided by the MediaTune/Com2000 system
+		
+#If_Defined cDebug
+#EndIf
+
+Development Notes _________________________________________________________________________ Development Notes */
+
+// ________________________________________________________________________________ Module Compile Time Behavior
+//#Define_Constant cDebug            1
+
+//#Enable_Dynamic                                     
+//#Enable_Trace
+#ENABLE_STACK_CHECKING
+#DEFAULT_VOLATILE                      
+#Category                          "46"  "MediaTune"
+#Output_Shift                      2
+//#Analog_Serial_Expand              OutputsWithParams
+
+// ___________________________________________________________________________________________________ Constants
+//#Define_Constant cMax              100
+#Define_Constant cChannel_Major        1
+#Define_Constant cChannel_Minor        2
+#Define_Constant cChannel_Callsign     3
+#Define_Constant cChannel_Indentifier  4
+#Define_Constant cChannel_l            5
+#Define_Constant cChannel_Content_Now  6
+#Define_Constant cChannel_Content_Next 7
+#Define_Constant cChannel_Categories   8
+#Define_Constant cChannel_Name         9
+#Define_Constant cChannel_IconIndex    10
+#Define_Constant cChannel_IconFile     11
+#Define_Constant cChannel_Provider     12
+#Define_Constant cChannel_Data_Count   12
+
+
+// ____________________________________________________________________________________________________________ Libraries
+#IncludePath "..\\..\\mediaTune\\mediaTune\\bin"
+#USER_SIMPLSHARP_LIBRARY "mediaTune"
+
+// _____________________________________________________________________________________________________ F1 Help
+//#HINT                              ""
+//#HELP_PDF_FILE ""
+#Help_Begin
+GreenPoint TDI   www.greenpointtdi.com
+
+Channel_Data_FB[01] = Channel_Major_FB
+Channel_Data_FB[02] = Channel_Minor_FB
+Channel_Data_FB[03] = Channel_Callsign_FB
+Channel_Data_FB[04] = Channel_Indentifier_FB
+Channel_Data_FB[05] = Channel_?_FB
+Channel_Data_FB[06] = Channel_Content_Now_FB
+Channel_Data_FB[07] = Channel_Content_Next_FB
+Channel_Data_FB[08] = Channel_Categories_FB
+Channel_Data_FB[09] = Channel_Name_FB
+Channel_Data_FB[10] = Channel_IconIndex_FB
+Channel_Data_FB[11] = Channel_IconFile_FB
+Channel_Data_FB[12] = Channel_Provider_FB
+
+#Help_End
+// ________________________________________________________________________________________ Simpl Input - Output 
+Digital_Input  _SKIP_, _SKIP_                               ;
+Digital_Input  HTML_Config_Set                              ;
+Analog_Input   Index                                             ;
+Analog_Input   _SKIP_                                            ;
+String_Input   HTML_Channel_Font_Size[3]                    ;
+String_Input   HTML_Channel_Font_Face[32]                   ;
+String_Input   HTML_Channel_Font_Color[6]                   ;
+String_Input   HTML_Content_Font_Size[3]                    ;
+String_Input   HTML_Content_Font_Face[32]                   ;
+String_Input   HTML_Content_Font_Color[6]                   ;
+
+  
+String_Output  Message_FB                                       ;
+Analog_Output  Index_FB                                         ;
+Analog_Output  IconIndex_FB                                     ;
+String_Output  HTML_Channel_Font_Size_FB                     ;
+String_Output  HTML_Channel_Font_Face_FB                     ;
+String_Output  HTML_Channel_Font_Color_FB                    ;
+String_Output  HTML_Content_Font_Size_FB                     ;
+String_Output  HTML_Content_Font_Face_FB                     ;
+String_Output  HTML_Content_Font_Color_FB                    ;
+String_Output  HTML_Format_FB                                   ;
+String_Output  Channel_Data_FB[cChannel_Data_Count]             ;
+
+// __________________________________________________________________________________________________ Parameters
+// _____________________________________________________________________________________________ Global Varibles
+Integer g_iMyIndex  ;
+String _channelSize_[3] ;
+String _channelFace_[32] ;
+String _channelColor_[6] ;
+String _contentSize_[3] ;
+String _contentFace_[32] ;
+String _contentColor_[6] ;
+String HTML_Channel_Config[128] ;
+String HTML_Content_Config[384] ;
+// ___________________________________________________________________________________________________ Functions
+Function fget_Channel_Data() // Single point to get channel data from sharp
+{
+	Integer iDataIndex ;
+	String  sChannel_Data[cChannel_Data_Count][255] ;
+	String  sHTML[512] ;
+	Try
+	{		
+		If(g_iMyIndex)
+		{
+			For(iDataIndex = 1 To cChannel_Data_Count - 1 Step 1)
+			{
+				sChannel_Data[iDataIndex] = RemoteCore.getChannelData(g_iMyIndex, iDataIndex - 1) ;
+				Channel_Data_FB[iDataIndex] = sChannel_Data[iDataIndex] ;
+			}
+			
+			IconIndex_FB = AtoI(sChannel_Data[cChannel_IconIndex])  ;
+			
+			sHTML = "<P>" ;
+			sHTML = sHTML + HTML_Channel_Config + sChannel_Data[cChannel_Major] + " - " + sChannel_Data[cChannel_Callsign] + "</FONT><BR>" ;
+			sHTML = sHTML + HTML_Content_Config + "Now:  " + sChannel_Data[cChannel_Content_Now] + "<BR>Next:  " + sChannel_Data[cChannel_Content_Next] + "</FONT>" ;
+			sHTML = sHTML + "</P>" ;
+			HTML_Format_FB = sHTML ;
+		}
+		Else
+		{
+			MakeString(Message_FB,"Function fget_Channel_Data Ignored: g_iMyIndex Zero.");
+		}
+	}
+	Catch
+	{
+		MakeString(Message_FB,"Function fget_Channel_Data Exception: %s", GetExceptionMessage());
+	}                                                                      	
+
+}
+
+Function fchannelSize(string s)
+{
+	If(Len(s))
+	{
+		If(AtoI(s) > 5)
+		{
+			_channelSize_ = s ;
+			HTML_Channel_Font_Size_FB = _channelSize_ ;
+			Return ;
+		}
+	}
+	MakeString(Message_FB,"Err setting HTML Channel font Size.");
+}
+
+Function fchannelFace(string s)
+{
+	If(Len(s))
+	{		
+		_channelFace_ = s ;
+		HTML_Channel_Font_Face_FB = _channelFace_ ;
+		Return ;
+	}
+	MakeString(Message_FB,"Err setting HTML Channel font Face.");
+}
+
+Function fchannelColor(string s)
+{
+	If(Len(s) = 6)
+	{		
+		_channelColor_ = s ;
+		HTML_Channel_Font_Color_FB = _channelColor_ ;
+		Return ;
+	}
+	MakeString(Message_FB,"Err setting HTML Channel fron Color.");
+}
+
+Function fcontentSize(string s)
+{
+	If(Len(s))
+	{
+		If(AtoI(s) > 5)
+		{
+			_contentSize_ = s ;
+			HTML_Content_Font_Size_FB = _contentSize_ ;
+			Return ;
+		}
+	}
+	MakeString(Message_FB,"Err setting HTML Content font Size.");
+}
+
+Function fcontentFace(string s)
+{
+	If(Len(s))
+	{		
+		_contentFace_ = s ;
+		HTML_Content_Font_Face_FB = _contentFace_ ;
+		Return ;
+	}
+	MakeString(Message_FB,"Err setting HTML Content font Face.");
+}
+
+Function fcontentColor(string s)
+{
+	If(Len(s) = 6)
+	{		
+		_contentColor_ = s ;
+		HTML_Content_Font_Color_FB = _contentColor_ ;
+		Return ;
+	}
+	MakeString(Message_FB,"Err setting HTML Content fron Color.");
+}
+
+Function fHTML_Config_Set()
+{
+	MakeString(HTML_Channel_Config, "<Font size=\x22%s\x22 face=\x22%s\x22 color=\x22#%s\x22>", _channelSize_, _channelFace_, _channelColor_);
+	MakeString(HTML_Content_Config, "<Font size=\x22%s\x22 face=\x22%s\x22 color=\x22#%s\x22>", _contentSize_, _contentFace_, _contentColor_);	
+}
+
+// ________________________________________________________________________________________________ Sharp Events
+EventHandler eChannel_Index(ChannelIndexEventArgs e) // Change event driven from Sharp on a parse
+{	
+	If(e.Channel_Index = g_iMyIndex)
+	{
+		fget_Channel_Data()  ; // Single point to get channel data from sharp
+	}
+}
+
+// ________________________________________________________________________________________________ Simpl Events
+Change Index
+{
+	If(Index)
+	{
+		g_iMyIndex = Index      ;
+		Index_FB   = g_iMyIndex ;
+		Try
+		{
+			If(ChannelCount_Remote.ChannelCount)// Make Sure the system has been fully initialized befor letting Simpl call
+			{				
+				fget_Channel_Data()     ;
+			}
+			Else
+			{
+				MakeString(Message_FB,"Change Index Event : Channel Count = Zero (Not initialized?).");
+			}
+		}
+		Catch
+		{
+			MakeString(Message_FB,"Change Index Event Exception: %s", GetExceptionMessage());
+		}
+	}
+	Else
+	{
+		MakeString(Message_FB,"Change Index Event: Ignored Index Zero Value.");
+	}
+}
+
+Push   HTML_Config_Set         { fHTML_Config_Set(); }
+Change HTML_Channel_Font_Size  { fchannelSize (HTML_Channel_Font_Size) ; }
+Change HTML_Channel_Font_Face  { fchannelFace (HTML_Channel_Font_Face) ; }
+Change HTML_Channel_Font_Color { fchannelColor(HTML_Channel_Font_Color); }
+Change HTML_Content_Font_Size  { fcontentSize (HTML_Content_Font_Size) ; }
+Change HTML_Content_Font_Face  { fcontentFace (HTML_Content_Font_Face) ; }
+Change HTML_Content_Font_Color { fcontentColor(HTML_Content_Font_Color); }
+// ________________________________________________________________________________________________ Start Up Code
+Function Main() 
+{
+	fchannelSize("12") ;
+	fchannelFace("Arial") ;
+	fchannelColor("FFFFFF") ;
+	fcontentSize("12") ;
+	fcontentFace("Arial") ;
+	fcontentColor("FFFFFF") ;
+	
+	fHTML_Config_Set() ;
+	
+	RegisterEvent(ChannelIndex, onChannelIndex_Data_Change, eChannel_Index) ;	
+    
+    
+    
+	//WaitForInitializationComplete()  ;	
+}

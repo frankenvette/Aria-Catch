@@ -1,0 +1,164 @@
+// _____________________ Module Compile Time Behavior ________________________________________________________
+#DEFINE_CONSTANT    cMaxValues     64  //Number of Items in a Preset
+#DEFINE_CONSTANT    cMaxDataSets   64   //Number of Presets
+//#Define_Constant    cMaxAttributes 4	//Max Number of Attributes to a preset
+#OUTPUT_SHIFT                      1
+#CATEGORY                          "9" // Memory
+#ANALOG_SERIAL_EXPAND              InputsWithOutputs
+#DEFAULT_VOLATILE
+#ENABLE_STACK_CHECKING
+//#ENABLE_TRACE
+// #Enable_Dynamic
+// #HELP_PDF_FILE ""
+#HELP_BEGIN
+This is a take off of the GP AV config Preset module. The pupose is for use in configuring 
+which items will fire from a scheduled event. The items are saved and written to file using 
+Write and read array functions into a .dat file per preset used. 
+
+Analog input View will be attached to the current_event file dof the Crestron version 3 scheduling module.
+analog input recall will be attched to a change event from added analog signal for recall event of the same 
+Module.	
+#HELP_END
+
+// _____________________ Input - Output _______________________________________________________________________
+Digital_Input _SKIP_                 ;
+ANALOG_INPUT Recall,View            ;
+Digital_Input Save						;
+Digital_input _skip_				;
+
+
+digital_input PreIncludeZ[cMaxValues]  ;
+
+
+DIGITAL_OUTPUT  Busy_FB    ;
+DIGITAL_OUTPUT  Save_Done  ;
+Digital_Output _SKIP_		;
+digital_output PreIncludedZ[cMaxValues]  ;
+Digital_Output _SKIP_					;
+digital_output FirePreset[cMaxValues] ;
+// _____________________ Parameters ___________________________________________________________________________
+String_Parameter PathFileExt[64]                                   ;
+
+#BEGIN_PARAMETER_PROPERTIES   PathFileExt
+	propValidUnits   = unitString                                  ;
+	propDefaultUnit  = unitString                                  ;
+#END_PARAMETER_PROPERTIES
+
+// _____________________ Global Varibles _______________________________________________________________________
+ INTEGER g_iValues[cMaxDataSets][cMaxValues] ;  
+ // _____________________ Events ________________________________________________________________________________
+
+CHANGE Recall
+{
+	Signed_Integer iHandle, iBytes ;
+	Integer i ;
+			
+	If(!Busy_FB && Recall <= cMaxDataSets && Recall <> 0)
+	{
+		Busy_FB = On ;
+		
+    	StartFileOperations();
+				
+			                                 
+        	iHandle = FileOpen(PathFileExt, _O_RDonly|_O_binary) ;
+        	iBytes  = ReadIntegerArray(iHandle, g_iValues)         ;		
+			Trace(" %d Bytes read",iBytes)								;
+        	FileClose(iHandle)                                     ;
+
+        
+    	EndFileOperations()                                    ;
+    	
+    	If(iBytes > 0)
+    	{
+    		For(i = 1 To cMaxValues Step 1)
+    		{
+    			If(g_iValues[Recall][i]=1)
+    			{
+    				pulse(50,FirePreset[i]) ;
+					wait(200);
+    			}
+    		}				
+    	}
+    	
+    	Busy_FB = OFF ;
+    }
+}
+Change View
+{
+       Signed_Integer iHandle, iBytes ;
+       integer i;
+		If(!Busy_FB && View <= cMaxDataSets && View <> 0 )
+
+		{
+     		Busy_FB = On ;
+		
+    		StartFileOperations();
+				
+			                                 
+        	iHandle = FileOpen(PathFileExt, _O_RDonly|_O_binary) ;
+        	iBytes  = ReadIntegerArray(iHandle, g_iValues)         ;		
+			Trace(" %d Bytes read",iBytes)								;
+        	FileClose(iHandle)                                     ;
+
+        
+    		EndFileOperations()                                    ;
+        	for( i = 1 to cMaxValues)
+			{
+				If(g_iValues[View][i]=1)
+    			{
+    				PreIncludedZ[i]=On;
+				}
+				else{PreIncludedZ[i]=OFF;}
+               	
+			}  
+			Busy_FB = Off ;
+		}
+}
+Push Save
+{
+    Signed_Integer iHandle, iBytes ;
+	Integer i ;
+			
+	If(!Busy_FB && View <= cMaxDataSets && View <> 0 )
+	{
+		Busy_FB = On ;
+		
+		For(i = 1 To cMaxValues Step 1)
+   		{
+			if(PreIncludedz[i]){g_iValues[View][i]=1;}
+				else{g_iValues[View][i]=0;}
+		}
+    	StartFileOperations() ;
+		iHandle = FileOpen(PathFileExt, _O_Creat | _O_Trunc |_O_RDWR| _o_binary) ;
+        iBytes  = WriteIntegerArray(iHandle, g_iValues)        ;
+		print(" %d Bytes Written",iBytes)								;
+        FileClose(iHandle)                                     ;					        
+    	EndFileOperations()                                    ;
+    	
+    	If(iBytes > 0)
+    	{
+    		Pulse(50, Save_Done) ;
+    		Trace("Saved Preset:%d", View) ;		
+    	}
+    	
+    	Busy_FB = OFF ;
+    }
+}
+Push PreIncludeZ
+{
+ 	integer i;
+	i = getlastmodifiedarrayindex();
+    if(PreIncludedZ[i] = off){PreIncludedZ[i]=on;}
+	else PreIncludedZ[i] = off;
+
+}
+
+// _____________________ Start Up Code __________________________________________________________________________
+Function Main()
+{
+    // Integer i ;
+
+    // WaitForInitializationComplete();
+}
+
+

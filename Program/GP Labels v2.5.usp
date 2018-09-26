@@ -1,0 +1,565 @@
+//GreenPoint TDI - RBP
+
+/* _____________________ Development Notes ___________________________________________________________________
+Labels
+01/02/12
+v2.5  : 3-Series Testing
+		Read Function returns... 0=failed, 1=success no further actions, 2=success however file info was not updated
+			This corrects the module hanging on 3-Series when creating directories or the file.
+		Added cDebug and #If_Defined compiler directives to turn on and off debug statements
+		Added Serial output Edit_Label_Replace_Text_FB to work directly with Core3_UI text entry object
+			This acts as the text router module that was used with this module for 2-Series
+
+01/06/11
+v2.4  : Changed the iBytes variable in the Read/Write routines to be Long_Signed_Integer
+			If file is larger than 32767 then the return to a Signed_Integer will appear negative misleading
+			to a file Read/Write error
+
+11/15/10		
+v2.3  : Change module name to "GP Labels v2.3", was Labels v2.x
+		Added GreenPoint TDI Namespace
+		Added encoding attribute
+		Added Standalone attribute
+		Backwards compatibility maintained for files created with v2.1 and v2.2 modules.
+		Added IF-Else case in parsing routine to add support for Microsoft Word editing
+		changed to use of \n instead of \r to make file readable in notepad, which also slims down the file
+		changed to use of \t instead of double spaces to make file slimmer and more readable
+        fixed bug in Function fWellFormed to look for /
+        Updated help section
+
+v2.2  : Added MMC as a directory - RBP 070610
+		Fixed bug that showed up in v2.2 in writting to MMC (IF directory = 2 || 3 ) error
+
+v2.1  : added file attribute outputs
+		added function "fWellFormed" to comply with XML naming convention specification - system/application compliance
+		added function "fUpdateSimpl" to make sending data to simpl global
+		added configurable file parameters, tag, attribute and file_comment
+		caught exception where the directory exists but the file doesnt... iHandle=-3025 after Find fails
+
+v2.0  : Write function		
+
+v1.0  : Read function with creation of the default file - Error checking 
+
+		
+********  Crestron has a bug with using _SKIP_ in the parameter definitions   ********
+********  GreenPoint has a case open [Case: 100505-000602] regarding the bug  ********
+********  This bug prevents readability of the cues on this module            ********
+
+Microsoft Word manual edit notes
+	- Word pulls out the comments on the save of the document
+	- Word tries to assert its own namespace on the save of the document
+	- Word pulls out all Carriage Return line feed data, making it harder to edit in a basic text editor	
+
+/* _____________________ Development Notes _________________________________________________________________*/
+
+// _____________________ Module Compile Time Behavior ________________________________________________________
+#ENABLE_DYNAMIC                                     
+#ENABLE_STACK_CHECKING
+#DEFAULT_VOLATILE                      
+#ENABLE_TRACE
+#CATEGORY                          "9"  //Memory
+#DEFINE_CONSTANT cDebug            1
+#DEFINE_CONSTANT cMaxOutputs       250
+#DEFINE_CONSTANT cMaxCharSize      32
+#DEFINE_CONSTANT cFolderCF         "\\CF0\\Labels"
+#DEFINE_CONSTANT cFolderMC         "\\MMC\\Labels"
+#DEFINE_CONSTANT cNameSpace        "xmlns=\x22http://www.greenpointtdi.com/cfgXML\x22>"
+#ANALOG_SERIAL_EXPAND              OutputsWithParams
+
+// _____________________ F1 - Help ___________________________________________________________________________
+#HINT                              "Read/Write Labels"
+// #HELP_PDF_FILE ""
+#Help_Begin
+GreenPoint TDI - www.greenpointtdi.com
+Help Updated in v2.3
+
+   | Parameters |
+P[1] = Directory : Drop down selection for the directory to store the XML file
+P[2] = File_Name : Name of the XML file, DO NOT USE AN EXTENSION
+P[3] = Tag       : Tag name for each element - 16 character limit
+P[4] = Attribute : Attribute name for each tag, the value of the attribute is the index of the parameter/signal - 16 character limit
+P[5] = Comment   : 128 characters that will placed into the file
+p[6]...P[X] = Default_Label : The Default label used for each output, this will be used and written if no file exists on the selected directory - 32 character limit
+
+____>Inputs
+			Digitals
+DIN[1] = Read : Read XML file off the configured Directory. If the file doesn't exist it will be created using the parameters. 
+				Event will not process if file operations are active indicated by the Busy_FB output
+DIN[2] = Edit_Save : Perform a write of the XML file and update the Output. 
+					 Event will not process if file operations are active indicated by the Busy_FB output
+	
+			Analogs
+AIN[1] = Edit_Index : Index of the output to edit
+	
+			Serials
+SIN[1] = Edit_Text : New text to store
+	
+Outputs_________>
+            Digitals
+DOUT[1] = Busy_FB : Latched High while performing file operations
+	
+			Analogs
+	
+			Serial
+SOUT[1]...SOUT[X] = Label_FB : (expandable) Labels contained in the XML file
+
+
+-=-=-=-=  XML Document Structure  =-=-=-=-=-=-=-=-=-=-=-=-=-==-=-=-=-=-==-
+Example of the document when 3 serial Label signals are defined in simpl and 
+the parameter cue names used are used as the parameter values
+
+<?xml version="1.0" encoding"UTF-8" standalone"yes" ?>
+
+<File_Name xmlns="http://www.greenpointtdi.com/Labels">
+	<!--File_Comments-->
+	<Tag Attribute="1">Default_Label[1]</Tag>
+	<Tag Attribute="2">Default_Label[2]</Tag>
+	<Tag Attribute="3">Default_Label[3]</Tag>
+</File_Name>
+
+	
+#Help_End
+// _____________________ Input - Output _______________________________________________________________________
+Digital_Input  _SKIP_,_SKIP_,_SKIP_,_SKIP_,_SKIP_,_SKIP_                           ;
+Digital_Input  Read                                                                ;
+Digital_Input  Edit_Save                                                           ;
+String_Input   Edit_Text[cMaxCharSize]                                             ;
+Analog_Input   Edit_Index                                                          ;
+
+//Digital_Output  _SKIP_                                                             ;
+Digital_Output Busy_FB                                                             ;
+String_Output  File_Path_FB                                                        ;
+String_Output  File_Time_FB                                                        ;
+String_Output  File_Date_FB                                                        ;
+String_Output  Edit_Label_Replace_Text_FB                                          ;
+String_Output  Label_FB[cMaxOutputs]                                               ;
+
+// _____________________ Parameters ___________________________________________________________________________
+Integer_Parameter Directory                                                        ;
+String_Parameter  File_Name[cMaxCharSize]                                          ;
+String_Parameter  Tag[16]                                                          ;
+String_Parameter  Attribute[16]                                                    ;
+String_Parameter  File_Comment[128]                                                ;
+//Integer_Parameter  _SKIP_,_SKIP_,_SKIP_,_SKIP_                                     ;
+String_Parameter  Default_Label[cMaxOutputs][cMaxCharSize]                         ;
+
+#BEGIN_PARAMETER_PROPERTIES Directory
+	propValidUnits   = unitDecimal                                                 ;
+	propDefaultUnit  = unitDecimal                                                 ;
+	propList         = { 0d      ,"Root_NVRAM"          }                          ,
+					   { 1d      ,"Root_Compact_Flash"  }                          , 
+					   { 2d      ,cFolderCF             }                          ,
+					   { 3d      ,cFolderMC             }                          ,
+					   { 4d      ,"Root_MMC"            }                          ;
+#END_PARAMETER_PROPERTIES
+
+#BEGIN_PARAMETER_PROPERTIES File_Name
+	propValidUnits       = unitString                                              ;
+	propDefaultUnit      = unitString                                              ;
+	propShortDescription = "Do NOT Use a file extension"                           ;
+#END_PARAMETER_PROPERTIES
+
+#BEGIN_PARAMETER_PROPERTIES Tag
+	propValidUnits       = unitString                                              ;
+	propDefaultUnit      = unitString                                              ;
+	propShortDescription = "Tag - child Elements, 16 chr max"                      ;
+#END_PARAMETER_PROPERTIES
+
+#BEGIN_PARAMETER_PROPERTIES Attribute
+	propValidUnits       = unitString                                              ;
+	propDefaultUnit      = unitString                                              ;
+	propShortDescription = "Attribute - child Elements, 16 chr max"                ;
+#END_PARAMETER_PROPERTIES                                            
+
+#BEGIN_PARAMETER_PROPERTIES File_Comment
+	propValidUnits       = unitString                                              ;
+	propDefaultUnit      = unitString                                              ;
+	propShortDescription = "Use to describe analog signal data, 128 chr max"       ;
+#END_PARAMETER_PROPERTIES
+
+
+#BEGIN_PARAMETER_PROPERTIES Default_Label
+	propValidUnits  = unitString                                                   ;
+	propDefaultUnit = unitString                                                   ;
+#END_PARAMETER_PROPERTIES
+
+// _____________________ Global Varibles _______________________________________________________________________
+Integer g_iNumLabels                                                               ;
+String  g_sReadPath[48]                                                            ;
+String  g_sDefault[16384]                                                          ;
+String  g_sFile_Name[cMaxCharSize]                                                 ;
+String  g_sTag[20]                                                                 ;
+String  g_sAttribute[20]                                                           ;
+String  g_sFolder[20]                                                              ;
+Dynamic String  g_sCurrentLabels[cMaxOutputs][cMaxCharSize]                        ;
+
+
+// _____________________ Functions _____________________________________________________________________________
+Function fUpdateSimpl()
+{
+	Integer i                                                                      ;
+	
+	For(i = 1 To g_iNumLabels Step 1)
+	{
+		Label_FB[i]  = g_sCurrentLabels[i]                                         ;	
+	}
+}
+
+Function fParse(String Data)
+{
+	Integer iStart, iEnd, iCount, iIndex                                           ;
+	String  sData[16384]                                                           ;
+	String  sItem[256]                                                             ;
+	String  sEndTag[64]                                                            ;
+	String  sIndexSearch[64]                                                       ;
+	
+	sEndTag = "</" + g_sTag + ">"                                                  ;
+	sData   = Data                                                                 ;
+	If(Find("-->\n\t", sData))
+		sItem = Remove("-->\n\t", sData)                                           ;
+	Else If(Find("-->\r\x20\x20", sData))
+	    sItem = Remove("-->\r\x20\x20", sData)                                     ; // Backwards compatibility for existing files created by v2.1 / 2.2
+	Else
+		sItem = Remove(cNameSpace, sData)                                          ; // v2.3 - Support for Microsoft Word editing
+	sIndexSearch = g_sAttribute + "=\x22"                                          ;
+	
+	While(Find(sEndTag, sData))
+	{
+		sItem  = Remove(sEndTag, sData)                                            ;
+		
+		iStart = Find(sIndexSearch, sItem) + Len(sIndexSearch)                     ;// There is a bug here that Mark uncovered by entering
+		iIndex = AtoI(Mid(sItem, iStart, Find("\x22>", sItem, iStart) - iStart))   ;// CEN-RGBHV32x32 as the tag
+		                                                                            // The module would only output item 32, everything else
+		iStart = Find(">", sItem) + 1                                              ;// was parsed empty 
+		iEnd   = Find(sEndTag, sItem)                                              ;//
+		iCount = iEnd - iStart                                                     ;//
+		g_sCurrentLabels[AtoI(sItem)] = Mid(sItem, iStart, iCount)                 ; 		 
+	}
+	#If_Defined cDebug 
+	Trace("Labels Read Complete - %s\n", GetSymbolInstanceName())                  ;
+	#EndIf
+}
+
+Integer_Function fRead()
+{
+	Signed_Integer iHandle, iFind, iDir                                            ;
+	Signed_Long_Integer iBytes                                                     ;
+	File_Info FileInfo                                                             ;
+	String sData[16384]                                                            ;
+    
+	StartFileOperations()                                                          ;
+		iFind = FindFirst(g_sReadPath, FileInfo)                                   ;
+		FindClose()                                                                ;
+		If(iFind = 0)
+		{//Found Directory... Just Read the File into SDRAM
+			iHandle = FileOpen(g_sReadPath, _O_Creat | _O_RDonly | _O_Text )       ;
+			If(iHandle >= 0)
+			{// File Open Successfull... Now Read data
+				//iBytes = FileRead(iHandle, sData, LowWord(FileInfo.LSIZE))         ;
+				iBytes = FileRead(iHandle, sData, FileLength(iHandle))             ;//v2.5
+				FileClose(iHandle)                                                 ;
+				EndFileOperations()                                                ;
+				If(iBytes >= 0)
+				{// File Read Successfull... Now Parse it out					
+					#If_Defined cDebug Trace("File Existed : Bytes=%ld", iBytes);#EndIf
+					fParse(sData)                                                  ;
+					File_Path_FB = g_sReadPath                                     ;
+					File_Time_FB = FileTime(FileInfo)                              ;
+					File_Date_FB = FileDate(FileInfo, 1)                           ;					
+					Return(1)                                                      ;// Ultimately want to drop here					
+				}
+				Else
+				{// File Read Fail... Post ERROR
+				 	#If_Defined cDebug Trace("File Read Fail : Err=%ld", iBytes);#EndIf
+				 	Return(0)                                                      ;
+				}
+			}
+			Else
+			{// File Open Fail... Post ERROR
+				FileClose(iHandle)                                                 ;
+				EndFileOperations()                                                ;
+				#If_Defined cDebug Trace("File Open Fail: Err=%d", iHandle); #EndIf
+				Return(0)                                                          ;	
+			}
+		}
+		Else
+		{//Must Create the default File and or Directory
+			If(Directory = 2 || Directory = 3)
+			{//Must Create Folder
+				iDir = MakeDirectory(g_sFolder)                                    ;
+				If(iDir = 0 || iDir = -3025)//-3025 = Directory exist but file does not
+				{//Directory Create Success... Now Create File
+					iHandle = FileOpen(g_sReadPath, _O_Creat | _O_Trunc | _O_WRonly | _O_Text );
+					If(iHandle >= 0)
+					{// File Create Successfull... Now Write default data
+						iBytes = FileWrite(iHandle, g_sDefault, Len(g_sDefault))   ;
+						FileClose(iHandle)                                         ;
+						EndFileOperations()                                        ;
+						If(iBytes > 0)
+						{//Default File Write Successfull.... Now Read again
+							#If_Defined cDebug
+							If(iDir = 0)
+								Trace("Directory and File Created");
+							Else If(iDir = -3025)
+							    Trace("Directory Existed and File Created");
+							#EndIf
+							Return(2)                                              ;
+						}
+						Else
+						{//Default File Write Fail... Post ERROR
+							#If_Defined cDebug Trace("Directory and File Created but File Write Failed: Err=%ld", iBytes);#EndIf
+							Return(0)                                              ;				
+						}						
+					}
+					Else
+					{// File Create Fail... Post ERROR						
+						FileClose(iHandle)                                         ;
+						EndFileOperations()                                        ;
+						#If_Defined cDebug Trace("Directory Created but File Creation Failed: Err=%d", iHandle);#EndIf
+						Return(0)                                                  ;
+					}
+				}
+				Else
+				{//Directory Create Fail... Post ERROR
+					FileClose(iHandle)                                             ;
+					EndFileOperations()                                            ;
+					#If_Defined cDebug Trace("Directory Create Failed : Err=%d", iHandle);#EndIf
+					Return(0)                                                      ;
+				}
+			}
+			Else
+			{//Create only File
+				iHandle = FileOpen(g_sReadPath, _O_Creat | _O_Trunc | _O_WRonly | _O_Text)    ;
+				If(iHandle >= 0)
+				{// File Create Successfull... Now Write default data
+					iBytes = FileWrite(iHandle, g_sDefault, Len(g_sDefault))       ;
+					FileClose(iHandle)                                             ;
+					EndFileOperations()                                            ;
+					If(iBytes > 0)
+					{//Default File Write Successfull.... Now Read again
+						#If_Defined cDebug Trace("Root File Created");#EndIf       
+						Return(2)                                                  ;
+					}
+					Else
+					{//Default File Write Fail... Post ERROR
+						#If_Defined cDebug Trace("Root File Created but File Write Failed: Err=%ld", iBytes);#EndIf	
+						Return(0)                                                  ;	
+					}
+				}
+				Else
+				{// File Create Fail... Post ERROR
+					FileClose(iHandle)                                             ;
+					EndFileOperations()                                            ;
+					#If_Defined cDebug Trace("Root File Create Failed: Err=%d", iHandle);#EndIf
+					Return(0)                                                      ;
+				}
+			}
+		}                                                                          		
+	//This tab block closes file operations statement	
+}
+
+Integer_Function fWrite()
+{ 
+	Integer i                                                                      ;
+	Signed_Integer iHandle, iFind                                                  ;
+	Signed_Long_Integer iBytes                                                     ;
+	String sData[16384]                                                            ;
+	
+	sData = "<?xml version=\x221.0\x22\x20"                                        +
+			"encoding=\x22UTF-8\x22\x20"                                           +
+			"standalone=\x22yes\x22 ?>\n\n<"                                       + 
+			g_sFile_Name + "\x20" + cNameSpace + "\n\t"                            +
+			"<!--" + File_Comment + "-->\n\t"                                      ;
+	
+	For(i = 1 To g_iNumLabels Step 1)
+	{
+		sData = sData                                                              + 
+				"<" + g_sTag + "\x20" + g_sAttribute + "=\x22" + ItoA(i) + "\x22>" + 
+				g_sCurrentLabels[i]                                                + 
+				"</" + g_sTag + ">\n\t"                                            ;
+	}
+	
+	sData = Left(sData, Len(sData) - 1)                                            ;
+	sData = sData + "</" + g_sFile_Name + ">\r"                                    ;
+	
+	StartFileOperations()                                                          ;
+	iHandle = FileOpen(g_sReadPath, _O_Creat | _O_Trunc | _O_WRonly | _O_Text )    ;
+	If(iHandle >= 0)
+	{
+		iBytes = FileWrite(iHandle, sData, Len(sData))                             ;
+		FileClose(iHandle)                                                         ;
+		EndFileOperations()                                                        ;
+		If(iBytes >= 0)
+		{				
+			#If_Defined cDebug Trace("File Write Success");#EndIf
+			Return(1)                                                              ;
+		}
+		Else
+		{			
+			#If_Defined cDebug Trace("File Write Error = %ld", iBytes);#EndIf			
+			Return(0)                                                              ;	
+		}			
+	}
+	Else
+	{
+		FileClose(iHandle)                                                         ;
+		EndFileOperations()                                                        ;
+		#If_Defined cDebug Trace("File Open for Write Error = %d", iHandle);#EndIf
+		Return(0)                                                                  ;	
+	}			
+}
+
+String_Function fWellFormed(String Data)  //convert to .usl
+{
+	Integer iFirstChr, i          ;
+	String  sFirstThreeChrs[3]    ;
+	
+	iFirstChr = Byte(Data, 1)     ;
+	//  Get rid of illegal leading chars and replace it with the x char
+    //	less than A    OR  greater than Z and less than a     OR  greater than z
+	If( iFirstChr < 65 || (iFirstChr > 90 && iFirstChr < 97)  ||  iFirstChr > 122 )
+	{
+		SetString("x", 1, Data)  ;	
+	}
+	// Get rid of leading with case insensitive letters "xml" in any naming convention
+	sFirstThreeChrs = Left(Data, 3) ;
+	If(FindNoCase("xml", sFirstThreeChrs))
+	{
+		Data = "x_m_l" + Right(Data, Len(Data) - 3) ;
+	}
+	// Get rid of character (null) through , in any naming convention (they are illegal)
+	For(i = 0 To 44 Step 1)
+	{
+		While(Find(Chr(i), Data))
+		{
+			SetString("-", Find(Chr(i), Data), Data) ;
+		}
+	}        
+    // Get rid of / in any naming convention (it is illegal)
+	While(Find(Chr(47), Data))  //Erroneous
+	{
+		SetString("-", Find(Chr(47), Data), Data)  ;
+	}
+	// Get rid of character : through @ in any naming convention (they are illegal and : is a reserved chr)
+	For(i = 58 To 64 Step 1)
+	{
+		While(Find(Chr(i), Data))
+		{
+			SetString("-", Find(Chr(i), Data), Data) ;
+		}
+	}
+	// Get rid of character [ through ` in any naming convention (they are illegal)
+	For(i = 91 To 96 Step 1)
+	{
+		While(Find(Chr(i), Data))
+		{
+			SetString("-", Find(Chr(i), Data), Data) ;
+		}
+	}
+	// Get rid of character { through DEL in any naming convention (they are illegal)
+	For(i = 123 To 127 Step 1)
+	{
+		While(Find(Chr(i), Data))
+		{
+			SetString("-", Find(Chr(i), Data), Data) ;
+		}
+	}	
+	Return(Data) ;
+}
+
+
+
+// _____________________ Events ________________________________________________________________________________
+Push Read
+{
+	Integer iReturn ;
+	If(!Busy_FB)
+	{
+		Busy_FB = ON                                                               ;
+		iReturn = fRead() ;		
+		If(iReturn = 2)
+			iReturn = fRead() ;				
+		If(iReturn = 1)
+			fUpdateSimpl()  ;
+		Busy_FB = OFF                                                              ;
+	}
+}
+Push Edit_Save
+{	
+	If(!Busy_FB    &&    Edit_Index > 0    &&    Edit_Index <= g_iNumLabels)
+	{
+		Busy_FB = ON                                                               ;
+		If( fRead() )                                                              
+		{
+			g_sCurrentLabels[Edit_Index] = Edit_Text                               ;
+			
+			If( fWrite() )                                                         
+            {
+            	fUpdateSimpl()                                                     ;
+            }
+		}
+		Busy_FB = OFF                                                              ;
+	}
+}
+Change Edit_Index
+{
+	If(Edit_Index > 0    &&    Edit_Index <= g_iNumLabels)
+	{
+		Edit_Label_Replace_Text_FB = g_sCurrentLabels[Edit_Index]                  ;
+	}
+}
+
+// _____________________ Start Up Code __________________________________________________________________________
+Function Main() 
+{
+	Integer i                                                                      ;
+	
+//	WaitForInitializationComplete()                                                ;
+	
+	For(i = cMaxOutputs To 1 Step -1)
+	{
+		If(IsSignalDefined(Label_FB[i]))
+		{
+			g_iNumLabels = i                                                       ;
+			Break                                                                  ;
+		}
+   	}                                                                             
+	#If_Defined cDebug Trace("%s, g_iNumLabels = %d", GetSymbolInstanceName(), g_iNumLabels);#EndIf//CRESTRON HAS A BUG WITH USING _SKIP_ ON PARAMETERS !!!!!!!!!!!!!!!!!!!!
+	
+	ResizeArray(g_sCurrentLabels, g_iNumLabels, cMaxCharSize)                      ; 
+	
+	g_sFile_Name = fWellFormed(File_Name)                                          ;
+	g_sTag       = fWellFormed(Tag)                                                ;
+	g_sAttribute = fWellFormed(Attribute)                                          ;
+		
+	cSwitch(Directory)
+	{
+		Case(0):{ g_sReadPath = "\\NVRAM\\"     + g_sFile_Name + ".xml" ; Break  ; }
+		Case(1):{ g_sReadPath = "\\CF0\\"       + g_sFile_Name + ".xml" ; Break  ; }
+		
+		Case(2):{ g_sReadPath = cFolderCF + "\\"+ g_sFile_Name + ".xml" ; 
+				                g_sFolder = cFolderCF ;                   Break  ; }
+		
+		Case(3):{ g_sReadPath = cFolderMC + "\\"+ g_sFile_Name + ".xml" ;
+				                g_sFolder = cFolderMC ;                   Break  ; }
+	    Case(4):{ g_sReadPath = "\\MMC\\"       + g_sFile_Name + ".xml" ; Break  ; }
+	}
+	
+	g_sDefault = "<?xml version=\x221.0\x22\x20"                                   +
+				 "encoding=\x22UTF-8\x22\x20"                                      +
+				 "standalone=\x22yes\x22 ?>\n\n"                                   +
+				 "<" + g_sFile_Name + "\x20" + cNameSpace + "\n\t"                 +
+				 "<!--" + File_Comment + "-->\n\t"                                 ;
+		
+	For(i = 1 To g_iNumLabels Step 1)
+	{
+		g_sDefault = g_sDefault                                                    + 
+			"<" + g_sTag + "\x20" + g_sAttribute + "=\x22" + ItoA(i) + "\x22>"     + 
+			Default_Label[i]                                                       + 
+			"</"+ g_sTag + ">\n\t"                                                 ;
+	}
+	g_sDefault = Left(g_sDefault, Len(g_sDefault) - 1)                             ;
+	g_sDefault = g_sDefault + "</" + g_sFile_Name + ">\n"                          ;
+	
+	#If_Defined cDebug Trace("Length of Default File=%d", Len(g_sDefault)); #EndIf
+}

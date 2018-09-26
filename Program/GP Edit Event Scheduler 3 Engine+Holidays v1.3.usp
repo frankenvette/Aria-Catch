@@ -1,0 +1,3881 @@
+#USER_SIMPLSHARP_LIBRARY "DateTimeClass"
+
+/*
+System Name: Event Scheduler 3 v1.3
+Comments: Copyright Crestron Electronics, 2008
+
+This scheduler allows for 3 types of scheduled events
+
+1) WEEKLY - This allows the user to define the days of the week and the months a user wants
+            an event to occur.
+
+2) PERIODIC This allows the user to define a period type (daily, weekly..) and then define a
+            period. Time is measured from the start date which means a periodic event must have
+            a start date.
+
+3) BYDATE - These events are scheduled by date. A list of dates is kept within an external file.
+            * NOTE * As of now real time editting of these events MAY block execution. (opposite is also true)
+*/
+
+//#DEFINE_CONSTANT DEBUG               1		//conditional compilation flag
+
+#IF_DEFINED DEBUG
+#SYMBOL_NAME "Event Scheduler 3 Engine w/ Holidays v1.3 (cm) (DEBUG)"
+#ENDIF
+#IF_NOT_DEFINED DEBUG
+#CATEGORY "13" // Timers
+#SYMBOL_NAME "GP Edit Event Scheduler 3 Engine w/ Holidays v1.3 (cm)"
+#ENDIF
+
+#ENABLE_TRACE
+#PRINT_TO_TRACE
+
+/****VERSION HISTORY
+  v1.3
+  ======
+  - Support added for dynamic holiday calculation using SIMPL#. Requires 3-series processor, this will NOT work on a 2-series. -AR
+
+  v1.2.2
+  ======
+  -bug fix: start and stop dates were ignored if an event was marked as "run forever"
+
+	v1.2.1
+	======
+  -bug fix for events reloading following a save
+  -bug fix: Day_fb and Month_fb will now be cleared if the edit event is not a weekly event
+
+  v1.2.0
+  ======
+  -Added a Last Modified date/time field to each event.
+  -Added a User Data field to each event (NOTE: CRLF signals End Of Line).
+  -Added a flags field to each event. Current flags are "R" = read-only,"H" = hidden, "W" = read-write.
+  -Hidden Events will not display on the touchpanel interface.
+  -Added a Read Only digital output.
+  -Read Only Events cannot be modifed via the touchpanel but can be suspended. Suspending a RO event updates the last modified field.
+  -Added a Version number at the top of the file. Format: #x
+  -Added Signals: FireEvent, ListEvents
+  -Added feature for running missed events at startup. On new program load every event occuring in the last 24hrs executes.
+  -Added event logging support
+
+  v1.1.1
+  ======
+  - modified Suspend and Resume inputs to automatically Save all scheduled events
+	to file
+  -	included Suspend flag in scheduler data file
+  - accounted for case where existing file does not contain suspend flag which will default to suspend=false
+  - Fixed a bug in the last version where the g_bWritingFile flag
+	was not being set.
+  - Changes to prevent reading the file when writing it.  Also,
+    reading the file when this module is the one who wrote the file.
+
+  v1.1.0
+  ======
+  -added output for total events in use so a scroll bar can be calculated
+  -added output for Scroll Arrow displayed on AADS front panel
+
+  v1.0.3
+  ======
+  -fixed bug where suspend/resume edit event was not properly updating edit_event_suspended output
+  -modified so that scheduler data is written to disk each time an individual event is saved
+
+  v1.0.2
+  ======
+   -added delay inside of while(1) loop in function main(). This prevents unnecessary processing
+    while system is disabled and also allows system to initialize on startup before referencing "enable"
+
+  v1.0.1
+  ======
+   -works with NVRAM Disk as well as with Compact Flash
+
+  v1.0
+  ======
+   -initial release
+
+
+*****/
+
+#HELP_BEGIN
+
+
+#HELP_END
+
+#DEFAULT_VOLATILE
+
+//constants
+#DEFINE_CONSTANT FILE_VERSION			2
+#DEFINE_CONSTANT MAX_PARAM			 	35 // the max amount of parameters we will need for editing
+#DEFINE_CONSTANT MAX_FILENAME_LENGTH 	255
+#DEFINE_CONSTANT MAX_SCHEDULE_INFO   	100
+#DEFINE_CONSTANT MAXEVENTS  	     	50
+#DEFINE_CONSTANT MAX_EVENT_NAME      	32
+#DEFINE_CONSTANT MAX_LINE_SIZE       	170	//updated from 100
+
+#DEFINE_CONSTANT LINE_DELIM          	"\x0D\x0A"
+#DEFINE_CONSTANT FIELD_DELIM         	","
+
+#DEfINE_CONSTANT CHUNK_SIZE          	512		//read the file in 512-byte chunks
+#DEFINE_CONSTANT BUFFER_SIZE         	682        //chunk size + max line size
+
+#DEFINE_CONSTANT COMMENT_CHAR        	'\''
+
+#DEFINE_CONSTANT DELAYTIME           	1000		//10 seconds
+
+#DEFINE_CONSTANT MARK_CHAR           	'X'
+#DEFINE_CONSTANT UNMARK_CHAR         	'-'
+#DEFINE_CONSTANT MINUSSIGN_CHAR      	'-'
+
+#DEFINE_CONSTANT START_DATE          	1
+#DEFINE_CONSTANT STOP_DATE           	2
+
+#DEFINE_CONSTANT TIMEBASE_AM         	0
+#DEFINE_CONSTANT TIMEBASE_PM         	1
+#DEFINE_CONSTANT TIMEBASE_SUNRISE    	2
+#DEFINE_CONSTANT TIMEBASE_SUNSET     	3
+
+#DEFINE_CONSTANT MINS_TIL_NOON       	720	//minutes from midnight until noon
+#DEFINE_CONSTANT MAX_STD_TIME        	720	//12 hours
+#DEFINE_CONSTANT MAX_AST_TIME        	360	//6 hours +/- sunrise/sunset
+
+#DEFINE_CONSTANT TRUE                	1
+#DEFINE_CONSTANT FALSE               	0
+
+#DEFINE_CONSTANT SAVE_RETRIGGER_TIME	500     // 5 secs between saves.
+
+// these constants allow us to retrieve event type info
+#DEFINE_CONSTANT WEEKLY				0
+#DEFINE_CONSTANT PERIODIC			1
+#DEFINE_CONSTANT BYDATE				2
+#DEFINE_CONSTANT MAX_EVENT_TYPE		2 // this should allows equal the last event type (bydate = 2)
+
+
+// periodic types
+#DEFINE_CONSTANT PERIODIC_DAILY		0
+#DEFINE_CONSTANT PERIODIC_WEEKLY	1
+#DEFINE_CONSTANT PERIODIC_MONTHLY	2
+#DEFINE_CONSTANT PERIODIC_YEARLY	3
+#DEFINE_CONSTANT PERIODIC_TYPES		3
+#DEFINE_CONSTANT LONGEST_PERIOD		200  // the longest period between events
+// end
+
+#DEFINE_CONSTANT MAX_DATES			100 // the max amount of dates
+#DEFINE_CONSTANT GET_BASETYPE		255
+
+#DEFINE_CONSTANT ANNUAL_EVENT		256
+
+#DEFINE_CONSTANT DATE_GETYEAR		10000 // used with mod
+#DEFINE_CONSTANT DATE_GETDAY		1000000 // used with mod
+#DEFINE_CONSTANT DATE_GETMONTH		1000000 // this is used with division
+
+#DEFINE_CONSTANT TODAY				0
+#DEFINE_CONSTANT BEFORE				1
+#DEFINE_CONSTANT AFTER				2
+// end
+
+
+// constants taken from Event Scheduler 2 - used for JDay / GDay
+#DEFINE_CONSTANT TICKSPERSECOND			113
+#DEFINE_CONSTANT numLeapYearsPre1997	484
+#DEFINE_CONSTANT YEAROFFSET				1996
+#DEFINE_CONSTANT MAXYEAR				2057
+#DEFINE_CONSTANT YEARDAYS				365
+#DEFINE_CONSTANT CENTDAYS				36524
+#DEFINE_CONSTANT QUADDAYS 				1461
+// end
+
+//Constants for special Scroll Arrows on AADS
+#DEFINE_CONSTANT	ARROWNONE		"\x20"
+#DEFINE_CONSTANT	ARROWUP			"\x02"
+#DEFINE_CONSTANT	ARROWDOWN		"\x03"
+#DEFINE_CONSTANT	ARROWUPDOWN		"\x04"
+
+
+#DEFINE_CONSTANT DIGITAL_OUTPUTS	285 // (MAX_PARAM + MAXEVENTS)
+
+//#DEFINE_CONSTANT OBSERVED_HOLIDAYS	"(NEW YEARS DAY|MARTIN LUTHER KING DAY|PRESIDENTS DAY|EASTER SUNDAY|MEMORIAL DAY|INDEPENDENCE DAY|LABOR DAY|COLUMBUS DAY|VETERANS DAY|THANKSGIVING DAY|CHRISTMAS DAY)"
+
+
+/********************
+	BEGIN HOLIDAYS
+ ********************/
+
+#define_constant nil	0
+
+#define_constant SUNDAY		0
+#define_constant MONDAY		1
+#define_constant TUESDAY	2
+#define_constant WEDNESDAY	3
+#define_constant THURSDAY	4
+#define_constant FRIDAY		5
+#define_constant SATURDAY	6
+
+#define_constant JANUARY	1
+#define_constant FEBRUARY	2
+#define_constant MARCH		3
+#define_constant APRIL		4
+#define_constant MAY		5
+#define_constant JUNE		6
+#define_constant JULY		7
+#define_constant AUGUST		8
+#define_constant SEPTEMBER	9
+#define_constant OCTOBER	10
+#define_constant NOVEMBER	11
+#define_constant DECEMBER	12
+
+#define_constant FIRSTWEEK	1
+#define_constant SECONDWEEK	2
+#define_constant THIRDWEEK	3
+#define_constant FOURTHWEEK	4
+#define_constant LASTWEEK	5
+
+// U.S. Federal Holidays
+#DEFINE_CONSTANT H_NYD	"New Years Day"
+#DEFINE_CONSTANT H_MLK	"Martin Luther King Day"
+#DEFINE_CONSTANT H_PRS	"Presidents Day"
+#DEFINE_CONSTANT H_EAS	"Easter Sunday"
+#DEFINE_CONSTANT H_MEM	"Memorial Day"
+#DEFINE_CONSTANT H_IND	"Independence Day" 
+#DEFINE_CONSTANT H_LAB	"Labor Day"
+#DEFINE_CONSTANT H_COL	"Columbus Day"
+#DEFINE_CONSTANT H_VET	"Veterans Day"
+#DEFINE_CONSTANT H_THK	"Thanksgiving Day"
+#DEFINE_CONSTANT H_CHR	"Christmas Day"
+
+#define_constant MAX_HOLIDAYS	20
+
+/********************
+	END HOLIDAYS
+ ********************/
+
+
+//inputs
+digital_input  enable;
+digital_input  Save_Edit_Event, Revert_Edit_Event;
+digital_input  AutoLoad, Load, Save;
+digital_input  Edit_First_Event, Edit_Next_Event, Edit_Prev_Event, Edit_Last_Event;
+digital_input  Hour_Up, Hour_Down, Minute_Up, Minute_Down;
+digital_input  AM, PM, Sunrise, Sunset;
+digital_input  Start_Month_Up, Start_Day_Up, Start_Year_Up; // these are to edit the start dates
+digital_input  Start_Month_Down, Start_Day_Down, Start_Year_Down;
+digital_input  Stop_Month_Up, Stop_Day_Up, Stop_Year_Up; // these are to edit the stop dates
+digital_input  Stop_Month_Down, Stop_Day_Down, Stop_Year_Down;
+digital_input  Annual_OnOff;
+digital_input  Suspend, Resume;
+digital_input  ExecuteMissedEvents;
+
+
+// inputs for events of WEEKLY type
+digital_input  Sunday_OnOff, Monday_OnOff, Tuesday_OnOff, Wednesday_OnOff, Thursday_OnOff, Friday_OnOff, Saturday_OnOff;
+digital_input  Jan_OnOff, Feb_OnOff, Mar_OnOff, Apr_OnOff, May_OnOff, Jun_OnOff, Jul_OnOff, Aug_OnOff, Sep_OnOff,
+               Oct_OnOff, Nov_OnOff, Dec_OnOff;
+
+// inputs for events of periodic type
+digital_input  ChangePeriodicType, IncreasePeriod, DecreasePeriod;
+
+
+// inputs for events of the bydate type
+digital_input  AddDate, ByDateMonthUp, ByDateMonthDown, ByDateDayUp,
+               ByDateDayDown, ByDateYearUp, ByDateYearDown, FirstDate, NextDate, PrevDate, LastDate, DeleteDate;
+
+// inputs for logging and debugging
+digital_input  FireEvent, List_Events;
+string_input   CmdEventName[MAX_EVENT_NAME];
+analog_input   Edit_Event;
+
+//astronomical clock data
+analog_input   Morning_Hour, Morning_Min, Night_Hour, Night_Min;
+
+string_input   filename$[MAX_FILENAME_LENGTH];
+
+digital_input  NewProgLoaded;
+
+digital_input  NameEnter;
+string_input   NewName[MAX_EVENT_NAME] ;
+//#IF_DEFINED DEBUG
+//digital_input  DUMP_ALL;
+//#ENDIF
+
+//outputs
+digital_output Read_Error, Write_Error;
+digital_output Edit_Event_Suspended;
+digital_output Edit_Event_ReadOnly;
+digital_output Edit_Event_Annual; // is this an annual event?
+
+// outputs for events of WEEKLY type
+digital_output  Sunday_OnOff_fb, Monday_OnOff_fb, Tuesday_OnOff_fb, Wednesday_OnOff_fb, Thursday_OnOff_fb,
+                Friday_OnOff_fb, Saturday_OnOff_fb;
+digital_output  Jan_OnOff_fb, Feb_OnOff_fb, Mar_OnOff_fb, Apr_OnOff_fb, May_OnOff_fb, Jun_OnOff_fb,
+                Jul_OnOff_fb, Aug_OnOff_fb, Sep_OnOff_fb, Oct_OnOff_fb, Nov_OnOff_fb, Dec_OnOff_fb;
+
+// outputs for events of ByDate type
+string_output  Event_ByDate_Info;
+string_output  AADSScrollArrow$;
+
+// logging signals
+string_output  Scheduler_Log;
+
+digital_output event_due[MAXEVENTS];
+analog_output Fired_due_index;
+analog_output  Edit_Event_Number, Edit_Event_Timebase;
+analog_output  Edit_Event_Type;
+analog_output  Total_Used_Events;
+string_output  edit_event_Start$;
+string_output  edit_event_Stop$;
+string_output  edit_event_name$, edit_event_time$, edit_event_date$;
+string_output  fired_event_name$;
+string_output  Periodic_EventInfo$;
+string_output  ByDate_EventInfo$;
+
+//global variables
+//NOTE: dates in long are describe as
+structure EventInfo
+{
+   string         Name[MAX_EVENT_NAME];
+   integer        TimeBase;       //AM, PM (for standard time), Sunrise, Sunset (for astronomical time)
+   signed_integer _Time;					//number of minutes since midnight
+   long_integer   _Date;          // next date we are supposed to happen
+   long_integer   _StartDate;
+   long_integer   _StopDate;
+   integer        Free;           //boolean indicating whether this event is being used or not
+   integer        Suspended;
+   integer        EventType; 			// this is the event type - periodic,
+   string         ScheduleInfo[MAX_SCHEDULE_INFO]; // any additional info
+   integer		   	HiddenState;
+   integer				ReadOnly;
+   string					LastModified[16];	//Format: mmddyyyy:hhmmss
+   string					UserData[50];			//Additional Information
+};
+
+EventInfo  g_Events[MAXEVENTS];
+EventInfo  g_EditEvent;
+
+structure HolidayInfo
+{
+	string	Name[32];
+	integer Month;
+	integer Day;
+	integer DayOfWeek;
+	integer WhichWeek;
+};
+
+HolidayInfo g_Holidays[MAX_HOLIDAYS];
+
+SimplSharpDateTimeClass dt; // SimplSharp Class Delcaration -AR
+
+integer    g_iMonthMask[12], g_iDayOfWeekMask[6], g_iDaysInMonth[12];
+integer    g_iEditEvent;
+integer    g_iMaxUsedEvent;
+integer    g_iByDateIndex, g_iByDateMaxIndex;
+integer		 g_iDayNum;
+long_integer g_lDates[MAX_DATES];
+
+string     g_FileName_Event[50];
+string     g_FileName_Edit[50];
+
+FILE_INFO  g_fiDataFile;
+
+nonvolatile string LastChecked[12];
+
+integer_function GetBit(integer iSource, integer iBitNum)
+{
+    if (iBitNum > 15) // invalid bit number, return 0
+        return (0);
+
+    return ((iSource & 1<<iBitNum) >> iBitNum);
+}
+
+integer_function SetBit(integer iSource, integer iBitNum, integer iValue)
+{
+    if (iBitNum > 15) // invalid bit number, return the unmodified argument
+        return (iSource);
+
+    if (iValue)    //check to see if iValue is non-zero (meaning SET the bit)
+        return (iSource | 1<<iBitNum);
+    else
+        return (iSource & NOT(1<<iBitNum));
+}
+
+integer_function ToggleBit(integer iSource, integer iBitNum)
+{
+   integer iBitValue;
+
+   iBitValue = GetBit(iSource, iBitNum);
+
+   if (iBitValue)
+     return (SetBit(iSource, iBitNum, 0));
+   else
+     return (SetBit(iSource, iBitNum, 1));
+}
+
+integer_function IsAnnualEvent(integer iEventType)
+{
+   if (iEventType & ANNUAL_EVENT)
+      return(TRUE);
+   else
+      return(FALSE);
+}
+
+integer_function EventType(integer iEventType)
+{
+   return(iEventType & GET_BASETYPE);
+}
+
+function FreeFile(string filename, integer purpose)
+{
+   if (purpose = 1)
+      g_FileName_Event = "";
+   else
+      g_FileName_Edit = "";
+}
+
+// purpose describes what the filename is being used for
+integer_function CanUseFile(string filename, integer purpose)
+{
+   if (purpose = 1) // we want to use the file to load / save all events
+   {
+      if (g_FileName_Event <> "") return(FALSE); // we already have a file open for this purpose!
+      if (filename = g_FileName_Edit) return(FALSE); // we are using this file to save real time changes!
+      return(TRUE);
+   }
+   else
+   {
+      if (g_FileName_Edit <> "") return(FALSE); // we already have a file open for this purpose!
+      if (filename = g_FileName_Event) return(FALSE); // we are using this file to check for execution!
+      return(TRUE);
+   }
+}
+
+integer_function UseStartStopDate(integer iEventNum)
+{
+   if (g_Events[iEventNum]._StartDate = 0) return(FALSE);
+   //if (g_Events[iEventNum]._StopDate = 0) return(FALSE); Bug fix #23830 - additional check made below
+
+   return(TRUE);
+}
+
+string_function GetMonthString(integer iMonth)
+{
+   switch(iMonth)
+   {
+      case(1):return("January");
+      case(2):return("February");
+      case(3):return("March");
+      case(4):return("April");
+      case(5):return("May");
+      case(6):return("June");
+      case(7):return("July");
+      case(8):return("August");
+      case(9):return("September");
+      case(10):return("October");
+      case(11):return("November");
+      case(12):return("December");
+   }
+}
+
+// this function allows us to fix the global days per month array
+function SetFebruary(integer iYear)
+{
+   if ((iYear mod 4) = 0)
+      g_iDaysInMonth[2] = 29;
+   else
+      g_iDaysInMonth[2] = 28;
+}
+
+// the long is defined as (mm)(dd)(yyyy) so 12252003 - oh no! we don't support the year 10,000 AD.
+integer_function GetYearFromLong(long_integer lDate)
+{
+    return ((lDate UMod DATE_GETYEAR));
+}
+
+integer_function GetDayFromLong(long_integer lDate)
+{
+   return ((lDate UMod DATE_GETDAY) / DATE_GETYEAR);
+}
+
+integer_function GetMonthFromLong(long_integer lDate)
+{
+   return ((lDate / DATE_GETMONTH));
+}
+
+long_integer_function CreateDateL(integer iMonth, integer iDay, integer iYear)
+{
+	return ((iMonth * 1000000) + (iDay * 10000) + iYear);
+}
+
+// Date Functions
+integer_function GetDayOfYearNum(long_integer lDate)
+{
+   integer lCount;
+   integer iLoop;
+
+   lCount = 0;
+
+   for (iLoop = 1 to GetMonthFromLong(lDate) - 1)
+      lCount = lCount + g_iDaysInMonth[iLoop];
+
+   lCount = lCount + GetDayFromLong(lDate);
+
+   return(lCount);
+}
+
+// JAN 1 1997 AD is considered day 1
+long_integer_function GetJDay(long_integer lDate) {
+
+    integer prvyear;
+    integer leapyear;
+    integer tempYear;
+    integer tempMonth;
+    integer tempDay;
+    integer jday;
+    integer leaps;
+
+    tempDay = GetDayFromLong(lDate);
+    tempMonth = GetMonthFromLong(lDate);
+    tempYear = GetYearFromLong(lDate);
+
+	// calc the number of leap years which preceeded the current year
+	prvyear = tempYear - 1;
+	leaps = prvyear / 4 - prvyear / 100 + prvyear / 400 - numLeapYearsPre1997;
+
+    // is the current year a leap year?
+	if (((tempYear mod 4 = 0) && (tempYear mod 100 <> 0)) || (tempYear mod 400 = 0))
+		leapyear=1;
+	else
+		leapyear=0;
+
+	switch(tempMonth)
+	{
+	case (1):
+		jday = tempDay;
+	case (2): {
+      tempDay = min(tempDay,28+leapYear);
+	  jday = tempDay + 31;
+	}
+	case (3):
+		jday = tempDay + 59;
+	case (4): {
+      tempDay = min(tempDay,30);
+      jday = tempDay + 90;
+	}
+	case (5):
+		jday = tempDay + 120;
+	case (6): {
+      tempDay = min(tempDay,30);
+      jday = tempDay + 151;
+    }
+	case (7):
+		jday = tempDay + 181;
+	case (8):
+		jday = tempDay + 212;
+	case (9): {
+      tempDay = min(tempDay,30);
+	  jday = tempDay + 243;
+	}
+	case (10):
+		jday = tempDay + 273;
+	case (11): {
+      tempDay = min(tempDay,30);
+	  jday = tempDay + 304;
+	}
+	case (12):
+		jday = tempDay + 334;
+	}
+
+	if((leapyear = 1) && (tempMonth <> 1) && (tempMonth <> 2))
+		jday = jday + 1;
+
+    jday = jday + (prvyear - YEAROFFSET) * 365 + leaps;
+
+    return(jday);
+}  // taken from the event scheduler 1 engine
+
+long_integer_function GetGDate(long_integer jday)
+{
+    // GetGDate() determines the month, day, and year given a "Julian Day" value
+
+	/* calc year and yearday */
+
+    long_integer tempDay;
+    long_integer tempMonth;
+    long_integer tempYear;
+    long_integer remcents;
+    long_integer remquads;
+    long_integer remyears;
+    long_integer leapyear;
+
+	tempMonth = 0;	/* dummy value */
+
+	remcents = jday / CENTDAYS;
+	jday = jday - CENTDAYS * remcents;
+	if(jday < 1){
+	  tempYear = YEAROFFSET + 100 * remcents;
+	  tempDay = YEARDAYS;
+    }
+    else {
+	  remquads = jday / QUADDAYS;
+	  jday = jday - QUADDAYS * remquads;
+	  if(jday < 1){
+	    tempYear = YEAROFFSET + 100 * remcents + 4 * remquads;
+		tempDay = YEARDAYS + 1;
+     }
+      else {
+	    remyears = jday / YEARDAYS;
+	    jday = jday - YEARDAYS * remyears;
+	    if(jday < 1){
+		  tempYear = YEAROFFSET + 100 * remcents
+					 + 4 * remquads + remyears;
+		  tempDay = YEARDAYS;
+		}
+        else {
+		  tempYear = 1 + YEAROFFSET + 100 * remcents
+					 + 4 * remquads + remyears;
+		  tempDay = jday;
+
+		} // else
+      } // else
+    } // else
+
+	/* calc month and day */
+	if(((tempYear mod 4 = 0) && (tempYear mod 100 <> 0)) || (tempYear mod 400 = 0))
+		leapYear = 1;
+	else
+		leapYear = 0;
+
+	if(tempDay < 1)
+	{
+		tempMonth = 12;
+		tempDay = 31;
+	}
+	else if(tempDay <= 31)
+	{
+		tempMonth = 1;
+	}
+	else if(tempDay <= leapYear + 59)
+	{
+		tempMonth = 2;
+		tempDay = tempDay - 31;
+	}
+	else if(tempDay <= leapYear + 90)
+	{
+		tempMonth = 3;
+		tempDay = tempDay - leapYear - 59;
+	}
+	else if(tempDay <= leapYear + 120)
+	{
+		tempMonth = 4;
+		tempDay = tempDay - leapYear - 90;
+	}
+	else if(tempDay <= leapYear + 151)
+	{
+		tempMonth = 5;
+		tempDay = tempDay - leapYear - 120;
+	}
+	else if(tempDay <= leapYear + 181)
+	{
+		tempMonth = 6;
+		tempDay = tempDay - leapYear - 151;
+	}
+	else if(tempDay <= leapYear + 212)
+	{
+		tempMonth = 7;
+		tempDay = tempDay - leapYear - 181;
+	}
+	else if(tempDay <= leapYear + 243)
+	{
+		tempMonth = 8;
+		tempDay = tempDay - leapYear - 212;
+	}
+	else if(tempDay <= leapYear + 273)
+	{
+		tempMonth = 9;
+		tempDay = tempDay - leapYear - 243;
+	}
+	else if(tempDay <= leapYear + 304)
+	{
+		tempMonth = 10;
+		tempDay = tempDay - leapYear - 273;
+	}
+	else if(tempDay <= leapYear + 334)
+	{
+		tempMonth = 11;
+		tempDay = tempDay - leapYear - 304;
+	}
+	else
+	{
+		tempMonth = 12;
+		tempDay = tempDay - leapYear - 334;
+	}
+
+    return(CreateDateL(tempMonth, tempDay, tempYear));
+
+}  // getGDate() - taken from the event scheduler 1 engine
+
+
+integer_function GetDayOfWeek(long_integer lDate) {
+
+  integer eventMonth;
+  integer eventYear;
+  integer eventDay;
+  integer zellerYear;
+  integer zellerMonth;
+  integer zellerCentury;
+  signed_integer dayOfWeek;
+
+  eventYear = GetYearFromLong(lDate);
+  eventDay = GetDayFromLong(lDate);
+  eventMonth = GetMonthFromLong(lDate);           
+ 
+  if ( eventMonth < 3) {
+    zellerYear = eventYear - 1;
+    zellerMonth = eventMonth + 10;
+  }
+  else {
+    zellerYear = eventYear;
+    zellerMonth = eventMonth - 2;
+  }                                                 
+ 
+  zellerCentury =  zellerYear / 100;
+  zellerYear    = zellerYear mod 100;                                         
+           
+  dayOfWeek = (((26 * zellerMonth - 2)/10  + eventDay + zellerYear +
+              zellerYear/4 + zellerCentury /4 - 2*zellerCentury ) mod 7);    
+              
+  if ( dayOfWeek < 0)   {
+    dayOfWeek = dayOfWeek + 7;   
+    }
+  return(dayOfWeek);
+
+} // GetDayOfWeek
+
+long_integer_function DecrementYear(long_integer lDate)
+{
+   lDate = lDate - 1;
+
+   SetFebruary(GetYearFromLong(lDate)); // what if its a leap year now?
+   if (GetDayFromLong(lDate) > g_iDaysInMonth[GetMonthFromLong(lDate)])
+      return(CreateDateL(GetMonthFromLong(lDate), g_iDaysInMonth[GetMonthFromLong(lDate)], GetYearFromLong(lDate)));
+   else
+      return(lDate);
+}
+
+long_integer_function IncrementYear(long_integer lDate)
+{
+   lDate = lDate + 1;
+
+   SetFebruary(GetYearFromLong(lDate)); // what if its a leap year now?
+   if (GetDayFromLong(lDate) > g_iDaysInMonth[GetMonthFromLong(lDate)])
+      return(CreateDateL(GetMonthFromLong(lDate), g_iDaysInMonth[GetMonthFromLong(lDate)], GetYearFromLong(lDate)));
+   else
+      return(lDate);
+}
+
+long_integer_function DecrementMonth(long_integer lDate)
+{
+   integer iTempMonth;
+   iTempMonth = GetMonthFromLong(lDate) - 1;
+   if (iTempMonth < 1)
+      iTempMonth = 12;
+
+   if (GetDayFromLong(lDate) > g_iDaysInMonth[iTempMonth])
+   {
+      return(CreateDateL(iTempMonth, g_iDaysInMonth[iTempMonth], GetYearFromLong(lDate)));
+   }
+   else
+   {
+      return(CreateDateL(iTempMonth, GetDayFromLong(lDate), GetYearFromLong(lDate)));
+   }
+}
+
+long_integer_function IncrementMonth(long_integer lDate)
+{
+   integer iTempMonth;
+   iTempMonth = GetMonthFromLong(lDate) + 1;
+   if (iTempMonth > 12)
+      iTempMonth = 1;
+
+   if (GetDayFromLong(lDate) > g_iDaysInMonth[iTempMonth])
+   {
+      return(CreateDateL(iTempMonth, g_iDaysInMonth[iTempMonth], GetYearFromLong(lDate)));
+   }
+   else
+   {
+      return(CreateDateL(iTempMonth, GetDayFromLong(lDate), GetYearFromLong(lDate)));
+   }
+
+
+}
+
+long_integer_function DecrementDate(long_integer lDate)
+{
+   If (GetDayFromLong(lDate) - 1 < 1)
+   {
+      return(CreateDateL(GetMonthFromLong(lDate), g_iDaysInMonth[GetMonthFromLong(lDate)], GetYearFromLong(lDate)));
+   }
+   else
+   {
+      return(CreateDateL(GetMonthFromLong(lDate), GetDayFromLong(lDate) - 1, GetYearFromLong(lDate)));
+   }
+}
+
+long_integer_function IncrementDate(long_integer lDate)
+{
+   SetFebruary(GetYearFromLong(lDate));
+
+   if (GetDayFromLong(lDate) + 1 > g_iDaysInMonth[GetMonthFromLong(lDate)])
+   {
+      return(CreateDateL(GetMonthFromLong(lDate), 1, GetYearFromLong(lDate)));
+   }
+   else
+   {
+      return(CreateDateL(GetMonthFromLong(lDate), GetDayFromLong(lDate) + 1, GetYearFromLong(lDate)));
+   }
+}
+
+// this function takes a date and returns whether that date is before or after today
+integer_function BeforeOrAfterToday(long_integer lDate)
+{
+   integer iYear;
+   integer iDay;
+   integer iMonth;
+
+   iYear = GetYearFromLong(lDate);
+   iDay = GetDayFromLong(lDate);
+   iMonth = GetMonthFromLong(lDate);
+
+   if (iYear > GetYearNum()) return(AFTER);
+   if (iYear < GetYearNum()) return(BEFORE);
+
+   if (iMonth > GetMonthNum()) return(AFTER);
+   if (iMonth < GetMonthNum()) return(BEFORE);
+
+   if (iDay > GetDateNum()) return(AFTER);
+   if (iDay < GetDateNum()) return(BEFORE);
+
+   return(TODAY);
+}
+
+// this function takes 2 dates
+// it returns the relation of the first parameter to the second
+integer_function BeforeOrAfterDate(long_integer lDate, long_integer lTestAgainst)
+{
+   integer iYear;
+   integer iDay;
+   integer iMonth;
+
+   integer iTestYear;
+   integer iTestDay;
+   integer iTestMonth;
+
+   iYear = GetYearFromLong(lDate);
+   iDay = GetDayFromLong(lDate);
+   iMonth = GetMonthFromLong(lDate);
+
+   iTestYear = GetYearFromLong(lTestAgainst);
+   iTestDay = GetDayFromLong(lTestAgainst);
+   iTestMonth = GetMonthFromLong(lTestAgainst);
+
+   if (iYear > iTestYear) return(AFTER);
+   if (iYear < iTestYear) return(BEFORE);
+
+   if (iMonth > iTestMonth) return(AFTER);
+   if (iMonth < iTestMonth) return(BEFORE);
+
+   if (iDay > iTestDay) return(AFTER);
+   if (iDay < iTestDay) return(BEFORE);
+
+   return(TODAY);
+}
+
+string_function GetDateString(long_integer lDate, integer iUseYear)
+{
+   integer iMonth, iDay, iYear;
+   string DateStr[50];
+
+   iMonth = GetMonthFromLong(lDate);
+   iDay = GetDayFromLong(lDate);
+   iYear = GetYearFromLong(lDate);
+
+   if ((iYear = 9999) || (iYear = 0)) return("Unused.");
+
+   if (iUseYear)
+   {
+      MakeString(DateStr, "%02d / %02d", iMonth, iDay);
+   }
+   else
+   {
+      MakeString(DateStr, "%02d / %02d / %04d", iMonth, iDay, iYear);
+   }
+
+   return(DateStr);
+}
+
+// SetAnnualStartStop
+//
+// If we are an annual event we need to make sure the start and stop are correctly
+// set as far as the year goes, this function will do such for us based on the date
+// *** YOU NEED TO SET THE START AND STOP SO THEY ARE IN THE RIGHT SPOT
+function SetAnnualStartStop(ByRef long_integer lStart, ByRef long_integer lStop)
+{
+   integer iStopNum;
+   integer iStartNum;
+   integer iStart_BOAT; // is start before or after today
+   integer iStop_BOAT;
+   integer iStartStopRelation;
+
+   // we set the start and stop date to this year and see which one would happen first
+   lStart = CreateDateL(GetMonthFromLong(lStart), GetDayFromLong(lStart), GetYearNum());
+
+   lStop = CreateDateL(GetMonthFromLong(lStop), GetDayFromLong(lStop), GetYearNum());
+
+   iStartStopRelation = BeforeOrAfterDate(lStart, lStop);
+   iStop_BOAT = BeforeOrAfterToday(lStop);
+
+   if (iStartStopRelation = AFTER)
+   {
+      if (iStop_BOAT = BEFORE)
+      {
+         lStop = CreateDateL(GetMonthFromLong(lStop), GetDayFromLong(lStop), GetYearNum() + 1);
+      }
+      else if ((iStop_BOAT = AFTER) || (iStop_BOAT = TODAY))
+      {
+         lStart = CreateDateL(GetMonthFromLong(lStart), GetDayFromLong(lStart), GetYearNum() - 1);
+      }
+   }
+   else if (iStartStopRelation = BEFORE)
+   {
+      if (iStop_BOAT = BEFORE) // the start and stop ended.. lets move it to next year
+      {
+         lStop = lStop + 1;
+         lStart = lStart + 1;
+      }
+   }
+   else if (iStartStopRelation = TODAY)
+   {
+      lStop = lStop + 1; // increment the year by one
+   }
+}
+
+function UpdateStartDate()
+{
+	integer i, holidayFlag;
+	string startDateString[32];
+
+	startDateString = GetDateString(g_EditEvent._StartDate, IsAnnualEvent(g_EditEvent.EventType));
+	edit_event_Start$ = startDateString;
+
+	holidayFlag = 0;     
+	dt.DateFormat = "MM / dd / yyyy";	
+
+	for(i = 0 to MAX_HOLIDAYS)
+	{
+		if(len(g_Holidays[i].Name) = 0) break;
+
+		if(findNoCase(g_Holidays[i].Name, g_EditEvent.Name))
+		{
+			holidayFlag = 1;
+			edit_event_date$ = startDateString;
+
+			break;
+		}
+	}
+
+	if(!holidayFlag) // If not a holiday, then return today's date.
+		edit_event_date$ = dt.GetDateTime(GetYearNum(), GetMonthNum(), GetDateNum());
+}
+
+function UpdateStopDate()
+{
+   edit_event_Stop$ = GetDateString(g_EditEvent._StopDate, IsAnnualEvent(g_EditEvent.EventType));
+}
+
+
+/*
+/////////////////////////////////////////////////////////////////////
+//
+// Function: integer EventIsValidToday
+//
+// Parameters: (IN) integer - the event number to check
+//
+// Return Value: 1 if the event is valid for today, 0 otherwise
+//
+// Description: given an event number, this function checks to see if
+//              this event is valid for today. This validation is based
+//              on the day of the week and current month.
+//
+/////////////////////////////////////////////////////////////////////
+integer_function EventIsValidToday(integer iEventNum, integer iDayOfWeek, integer iMonth)
+{
+
+   //first see if the event is valid for this month
+   if ((g_Events[iEventNum].ValidMonths & g_iMonthMask[iMonth]) = 0)
+     return (0);
+
+   //now see if the event is valid for this day of the week
+   if ((g_Events[iEventNum].ValidDays & g_iDayOfWeekMask[iDayOfWeek]) = 0)
+     return (0);
+
+   //if we got here then the event is valid today
+   return(1);
+
+}
+*/
+
+/////////////////////////////////////////////////////////////////////
+//
+// Function: integer GetIntegerFromBitFieldString(string)
+//
+// Parameters: (IN) string - a string made up of "marked" and "unmarked"
+//                           characters. A mark indicates a set bit, and
+//							 an unmark indicates a cleared bit.
+//
+// Return Value: an integer having the value represented by the string
+//
+// Description: takes a string in "binary" format, where each character
+//				is either marked or unmarked. Marked characters represent
+//				a binary 1, and unmarked represent a binary 0. This function
+//				converts such a string into an integer with the equivalent
+//				value.
+//
+/////////////////////////////////////////////////////////////////////
+integer_function GetIntegerFromBitFieldString(string sBitField)
+{
+
+  integer iLen;
+  integer iByte;
+  integer iTemp;
+
+  iTemp = 0;
+
+  iLen = len(sBitField);
+
+  if (iLen > 16)
+    return (-1);
+
+  for (iByte = 1 to iLen)
+  {
+     if (byte(sBitField, iByte) = MARK_CHAR)
+      {
+        iTemp = iTemp + (1<<(iByte-1));
+      }
+  }
+
+  return (iTemp);
+
+}
+
+/////////////////////////////////////////////////////////////////////
+//
+// Function: string GetBitFieldStringFromInteger(integer, integer)
+//
+// Parameters: (IN) integer - the value to be converted into a binary string
+//             (IN) integer - how many bits to write out to the return string
+//
+// Return Value: a string consisting of marked and unmarked characters
+//
+// Description: This function is the corollary to the GetIntegerFromBitFieldString
+//              function.
+//
+/////////////////////////////////////////////////////////////////////
+string_function GetBitFieldStringFromInteger(integer iBitField, integer iNumBits)
+{
+
+   string sTemp[16];  //16-bits max (it is an integer, after all!)
+   integer iBit;
+
+   sTemp = "";
+
+   for (iBit = 0 to iNumBits - 1)
+   {
+      if (iBitField & 1<<iBit)
+        sTemp = sTemp + chr(MARK_CHAR);
+      else
+        sTemp = sTemp + chr(UNMARK_CHAR);
+   }
+
+   return (sTemp);
+
+
+}
+
+
+/////////////////////////////////////////////////////////////////////
+//
+// Function: void CopyEvent(inEventInfo, outEventInfo)
+//
+// Parameters: (IN)  EventInfo - the event structure being copied
+//             (OUT) EventInfo - the event structure being copied into
+//
+// Return Value: (none)
+//
+// Description: Perfoms a bitwise copy of an EventInfo structure
+//
+/////////////////////////////////////////////////////////////////////
+function CopyEvent(EventInfo src, ByRef EventInfo dest)
+{
+    dest.Name        	= src.Name;
+    dest.TimeBase    	= src.TimeBase;
+    dest._Time       	= src._Time;
+    dest._Date		 		= src._Date;
+    dest._StartDate  	= src._StartDate;
+    dest._StopDate   	= src._StopDate;
+    dest.EventType   	= src.EventType;
+    dest.ScheduleInfo	= src.ScheduleInfo;
+    dest.Free        	= src.Free;		//probably unnecessary since we should never be working with unused events
+    dest.Suspended   	= src.Suspended;
+    dest.HiddenState 	= src.HiddenState;
+    dest.ReadOnly 	 	= src.Readonly;
+    dest.LastModified	= src.LastModified;
+    dest.UserData 	 	= src.UserData;
+}
+
+/////////////////////////////////////////////////////////////////////
+//
+// Function: string GetTimeString(signed_integer, integer)
+//
+// Parameters: (IN) signed_integer - the time offset, in minutes
+//			   (IN) integer - the time base (AM, PM, etc.)
+//
+// Return Value: string - a user-readable version of the event time
+//
+// Description: Given the time base and offset (as held by an event)
+//			    this function returns a nicely formatted string designed
+//              for display on a touchpanel.
+//
+/////////////////////////////////////////////////////////////////////
+string_function GetTimeString(signed_integer iTime, integer iTimeBase)
+{
+
+   signed_integer iHour;
+   integer        iMin;
+   string         sTime[20];
+
+
+   iHour = abs(iTime) / 60;
+   iMin = abs(iTime) mod 60;
+
+   switch (iTimeBase)
+   {
+     case (TIMEBASE_AM):
+     {
+       if (iHour = 0)
+         iHour = 12;
+       makestring(sTime, "%u:%02u AM", iHour, iMin);
+     }
+
+     case (TIMEBASE_PM):
+     {
+       if (iHour = 0)
+         iHour = 12;
+       makestring(sTime, "%u:%02u PM", iHour, iMin);
+     }
+
+     case (TIMEBASE_SUNRISE):
+     {
+       if (iTime >= 0)
+         makestring(sTime, "Sunrise + %u:%02u", iHour, iMin);
+       else
+         makestring(sTime, "Sunrise - %u:%02u", iHour, iMin);
+     }
+
+     case (TIMEBASE_SUNSET):
+     {
+       if (iTime >= 0)
+         makestring(sTime, "Sunset + %u:%02u", iHour, iMin);
+       else
+         makestring(sTime, "Sunset - %u:%02u", iHour, iMin);
+     }
+
+     default:
+       sTime = "ERROR: Invalid time";
+
+   }
+
+   return (sTime);
+
+}
+
+function UpdateEditEventTime()
+{
+  signed_integer iTime;
+  integer        iTimebase;
+
+  Edit_Event_Timebase = g_EditEvent.TimeBase;
+
+  iTime = g_EditEvent._Time;
+  iTimebase = g_EditEvent.TimeBase;
+  Edit_Event_Time$ = GetTimeString(iTime, iTimeBase);
+
+}
+
+/*function UpdateEditEventFlags()
+{
+   switch (g_EditEvent.EventType)
+   {
+      case(WEEKLY):
+      {
+      }
+      case(PERIODIC):
+      {
+      }
+      case(BYDATE):
+      {
+      }
+   }
+}
+//   Edit_Event_Valid_Days = g_EditEvent.ValidDays;
+//   Edit_Event_Valid_Months = g_EditEvent.ValidMonths;
+*/
+
+function PERIODIC_ExtractInfo(string strDetail, ByRef integer iPeriodicType, ByRef integer iPeriod)
+{
+   string sDetails[MAX_SCHEDULE_INFO];
+   string sTemp[MAX_SCHEDULE_INFO];
+
+   sDetails = strDetail;
+
+   sTemp = remove(FIELD_DELIM, sDetails);
+   iPeriodicType = atoi(sTemp);
+   iPeriod = atoi(sDetails);
+}
+
+// given a WEEKLY ScheduleInfo extract the important information
+function WEEKLY_ExtractInfo(string strDetail, ByRef integer iValidDays, ByRef integer iValidMonths)
+{
+   if (len(strDetail) < 20) // the string isn't long enough to be valid!
+   {
+      print("ERROR: Details to short!\n");
+
+      iValidDays = 0;
+      iValidMonths = 0;
+   }
+   else
+   {
+      iValidDays = GetIntegerFromBitFieldString(mid(strDetail, 1, 7));
+      iValidMonths = GetIntegerFromBitFieldString(mid(strDetail, 9, 20));
+   }
+}
+
+//function ClearTypeSpecificOutputs()
+//{
+//}
+
+// given an index into a file we will try to get that index
+//
+// if the index is invalid (or to high) we return to 1
+//long_integer GetDateFromIndex(byref integer iIndex)
+//{
+//}
+
+function WriteDateArray()
+{
+  signed_integer iFileHandle;
+  signed_integer iErrCode;
+  string  sWriteBuf[MAX_LINE_SIZE];
+  string  sTime[4];
+  integer i;
+
+  if (!CanUseFile(g_EditEvent.ScheduleInfo, 2)) return;
+
+  if (StartFileOperations() < 0)
+  {
+      print("ERROR: Cannot start file ops\n");
+      pulse(50, Write_Error);
+      return;
+  }
+
+  iFileHandle = FileOpen(g_EditEvent.ScheduleInfo, _O_CREAT | _O_WRONLY | _O_TRUNC | _O_TEXT);
+  if (iFileHandle < 0)
+  {
+    print("ERROR: Cannot open/create file '%s' for write.\nError Code=%d\n", g_EditEvent.ScheduleInfo, iFileHandle);
+    pulse(50, Write_Error);
+    return;
+  }
+
+  sWriteBuf = "";
+  FileWrite(iFileHandle, sWriteBuf, len(sWriteBuf));
+
+  for (i=1 to g_iByDateMaxIndex)
+  {
+      sWriteBuf = ltoa(g_lDates[i]) + LINE_DELIM;
+      FileWrite(iFileHandle, sWriteBuf, len(sWriteBuf));
+  }
+
+  iErrCode = FileClose(iFileHandle);
+
+  if (EndFileOperations() < 0)
+  {
+      print("ERROR: Ending file ops.\n");
+  }
+
+  FreeFile(g_EditEvent.ScheduleInfo, 2);
+}
+
+function LoadDateArray()
+{
+   string sReadBuf[BUFFER_SIZE];
+   string sLine[MAX_LINE_SIZE];
+   integer iFileHandle;
+   integer bBufferdone;
+   integer iIndex;
+   FILE_INFO  fiFile;
+
+   if (!CanUseFile(g_EditEvent.ScheduleInfo, 2)) return;
+
+   iIndex = 1;
+   bBufferdone = 0;
+
+   if (StartFileOperations() < 0)
+   {
+       print("ERROR: Cannot start file ops\n");
+       pulse(50, Read_Error);
+       return;
+   }
+
+   if(FindFirst(g_EditEvent.ScheduleInfo, fiFile) <> 0)
+   {
+     print("ERROR: Could not find file %s\n", g_EditEvent.ScheduleInfo);
+     pulse(50, Read_Error);
+     return;
+   }
+
+   iFileHandle = FileOpen(g_EditEvent.ScheduleInfo, _O_RDONLY | _O_TEXT);
+   if (iFileHandle < 0)
+   {
+     print("ERROR: Cannot open file '%s' for read.\n Error Code=%d\n", g_EditEvent.ScheduleInfo, iFileHandle);
+     pulse(50, Read_Error);
+     return;
+   }
+
+   sLine = "";
+
+   while (FileRead(iFileHandle, sReadBuf, CHUNK_SIZE))
+   {
+
+      sReadBuf = sLine + sReadBuf;	//in case there was any leftover from the previous iteration
+      bBufferDone = 0;
+      do
+      {
+         sLine = remove(LINE_DELIM, sReadBuf);
+
+    	 if ((len(sLine) = 0) || (iIndex = MAX_DATES))
+  	        bBufferDone = 1;
+    	 else
+  	     {
+            g_lDates[iIndex] = atol(sLine);
+            iIndex = iIndex + 1;
+         }
+      } until (bBufferDone);
+
+      if (len(sReadBuf))
+  	     sLine = sReadBuf;
+   }
+
+   FileClose(iFileHandle);
+
+   if (EndFileOperations() < 0)
+   {
+       print("ERROR: Ending file ops.\n");
+   }
+
+   FreeFile(g_EditEvent.ScheduleInfo, 2);
+
+   g_iByDateIndex = 1;
+   g_iByDateMaxIndex = iIndex - 1;
+}
+
+function SetByDateOutputs()
+{
+   if (g_iByDateMaxIndex = 0)
+      ByDate_EventInfo$ = "Unavailable.";
+   else
+   {
+      if (IsAnnualEvent(g_EditEvent.EventType))
+      {
+         ByDate_EventInfo$ = "(" + itoa(g_iByDateIndex) + "/" + itoa(g_iByDateMaxIndex) + ") Annually on " +
+         GetMonthString(GetMonthFromLong(g_lDates[g_iByDateIndex])) + " " +
+         ltoa(GetDayFromLong(g_lDates[g_iByDateIndex])) + "." ;
+      }
+      else
+      {
+         ByDate_EventInfo$ = "(" + itoa(g_iByDateIndex) + "/" + itoa(g_iByDateMaxIndex) + ") " +
+         GetMonthString(GetMonthFromLong(g_lDates[g_iByDateIndex])) + " " +
+         ltoa(GetDayFromLong(g_lDates[g_iByDateIndex])) + ", " + ltoa(GetYearFromLong(g_lDates[g_iByDateIndex]));
+      }
+   }
+}
+
+function SetPeriodicOutputs()
+{
+   integer iPeriodicType, iPeriod;
+   string PType[10];
+
+   PERIODIC_ExtractInfo(g_EditEvent.ScheduleInfo, iPeriodicType, iPeriod); // extract info from string
+
+   switch(iPeriodicType)
+   {
+      case(PERIODIC_DAILY):
+      {
+         PType = "day(s)";
+      }
+      case(PERIODIC_WEEKLY):
+      {
+         PType = "week(s)";
+      }
+      case(PERIODIC_MONTHLY):
+      {
+         PType = "month(s)";
+      }
+      case(PERIODIC_YEARLY):
+      {
+         PType = "year(s)";
+      }
+   }
+
+   Periodic_EventInfo$ = "Event will occur every " + itoa(iPeriod) + " " + PType;
+
+}
+
+function SetWeeklyOutputs()
+{
+   integer iLoop;
+   integer iValidDays, iValidMonths;
+
+   // get the info we need
+   WEEKLY_ExtractInfo(g_EditEvent.ScheduleInfo, iValidDays, iValidMonths);
+
+   Sunday_OnOff_fb = GetBit(iValidDays, 0);
+   Monday_OnOff_fb = GetBit(iValidDays, 1);
+   Tuesday_OnOff_fb = GetBit(iValidDays, 2);
+   Wednesday_OnOff_fb = GetBit(iValidDays, 3);
+   Thursday_OnOff_fb = GetBit(iValidDays, 4);
+   Friday_OnOff_fb = GetBit(iValidDays, 5);
+   Saturday_OnOff_fb = GetBit(iValidDays, 6);
+
+   Jan_OnOff_fb = GetBit(iValidMonths, 0);
+   Feb_OnOff_fb = GetBit(iValidMonths, 1);
+   Mar_OnOff_fb = GetBit(iValidMonths, 2);
+   Apr_OnOff_fb = GetBit(iValidMonths, 3);
+   May_OnOff_fb = GetBit(iValidMonths, 4);
+   Jun_OnOff_fb = GetBit(iValidMonths, 5);
+   Jul_OnOff_fb = GetBit(iValidMonths, 6);
+   Aug_OnOff_fb = GetBit(iValidMonths, 7);
+   Sep_OnOff_fb = GetBit(iValidMonths, 8);
+   Oct_OnOff_fb = GetBit(iValidMonths, 9);
+   Nov_OnOff_fb = GetBit(iValidMonths, 10);
+   Dec_OnOff_fb = GetBit(iValidMonths, 11);
+}
+function ClearWeeklyOutputs()
+{
+	 Sunday_OnOff_fb = 0;
+   Monday_OnOff_fb = 0;
+   Tuesday_OnOff_fb = 0;
+   Wednesday_OnOff_fb = 0;
+   Thursday_OnOff_fb = 0;
+   Friday_OnOff_fb = 0;
+   Saturday_OnOff_fb = 0;
+
+   Jan_OnOff_fb = 0;
+   Feb_OnOff_fb = 0;
+   Mar_OnOff_fb = 0;
+   Apr_OnOff_fb = 0;
+   May_OnOff_fb = 0;
+   Jun_OnOff_fb = 0;
+   Jul_OnOff_fb = 0;
+   Aug_OnOff_fb = 0;
+   Sep_OnOff_fb = 0;
+   Oct_OnOff_fb = 0;
+   Nov_OnOff_fb = 0;
+   Dec_OnOff_fb = 0;
+
+}
+
+function SetTypeSpecificOutputs()
+{
+   Edit_Event_Type = EventType(g_EditEvent.EventType);
+
+   g_iByDateIndex = 0; //  if this was called then we are looking at a new date for ByDate events
+
+   switch(EventType(g_EditEvent.EventType))
+   {
+      case(WEEKLY):
+      {
+         SetWeeklyOutputs();
+      }
+      case(BYDATE):
+      {
+         ClearWeeklyOutputs();
+         LoadDateArray();
+         SetByDateOutputs();
+      }
+      case(PERIODIC):
+      {
+         ClearWeeklyOutputs();
+         SetPeriodicOutputs();
+      }
+   }
+}
+
+function UpdateEditEventSuspended()
+{
+   Edit_Event_Suspended = g_Events[g_iEditEvent].Suspended;
+   #IF_DEFINED DEBUG
+   print("Event #%u, Suspended=%u\n", g_iEditEvent, g_Events[g_iEditEvent].Suspended);
+   #ENDIF
+}
+
+function UpdateEditEventReadOnly()
+{
+   Edit_Event_ReadOnly = g_EditEvent.ReadOnly;
+}
+
+// this sets all the base outputs for an event to be editted
+function SetEditEventOutputs()
+{ 
+   Edit_Event_Number = g_iEditEvent;
+   Edit_Event_Name$ = g_EditEvent.Name;
+   Edit_Event_Type = g_EditEvent.EventType;
+   Edit_Event_Annual = IsAnnualEvent(g_EditEvent.EventType);
+   if((g_iEditEvent > 1) && (g_iEditEvent < g_iMaxUsedEvent))
+		AADSScrollArrow$ = ARROWUPDOWN;
+   else if(g_iEditEvent < g_iMaxUsedEvent)
+   		AADSScrollArrow$ = ARROWDOWN;
+   else if(g_iEditEvent > 1)
+   		AADSScrollArrow$ = ARROWUP;
+   	else
+   		AADSScrollArrow$ = ARROWNONE;
+
+//   ClearTypeSpecificOutputs();
+   SetTypeSpecificOutputs();
+   UpdateEditEventTime();
+   UpdateEditEventSuspended();
+   UpdateEditEventReadOnly();
+   UpdateStartDate();
+   UpdateStopDate();
+}
+
+/////////////////////////////////////////////////////////////////////
+//
+// Function:  SetEditEvent(integer)
+//
+// Parameters: (IN) integer - the event number to be edited
+//
+// Return Value: (none)
+//
+// Description: This function is called to set the currently edited event
+//			    number to the one passed in as argument 1. It sets the
+//              appropriate global variables and updates the appropriate
+//				output signals (used for display on a touchpanel).
+//
+/////////////////////////////////////////////////////////////////////
+function SetEditEvent(integer iEventNum)
+{
+  integer iLoop;
+
+  if (iEventNum < 1)
+    g_iEditEvent = 1;
+  else if (iEventNum > g_iMaxUsedEvent)
+    g_iEditEvent = g_iMaxUsedEvent;
+  else
+    g_iEditEvent = iEventNum;
+
+  if (g_Events[g_iEditEvent].Free = FALSE)
+  {
+    CopyEvent(g_Events[g_iEditEvent], g_EditEvent);
+
+    SetEditEventOutputs(); // see the time string, annual output, etc.. anything all events have
+    //UpdateEditEventFlags();
+  }
+  else
+  {
+    print("ERROR: Event %d is not in use or is Hidden.\n", g_iEditEvent);
+
+    Edit_Event_Name$ = "ERROR";
+    Edit_Event_Time$ = "ERROR";
+  }
+}
+
+
+/////////////////////////////////////////////////////////////////////
+//
+// Function: signed_integer WriteEventFile
+//
+// Parameters: <none>
+//
+// Return Value: number of events saved, or error code if negative
+//
+// Description: saves event information to file specified by
+//              the filename$ string_input. This information is written
+//              from the g_Events[] array.
+//
+/////////////////////////////////////////////////////////////////////
+signed_integer_function WriteEventFile()
+{
+  signed_integer iFileHandle;
+  signed_integer iErrCode;
+  string  sWriteBuf[MAX_LINE_SIZE];
+  string  sTemp[MAX_LINE_SIZE];
+  string  sTime[4];
+  string  Hidden[1];
+  string  ReadOnly[1];
+  integer i;
+
+  sTemp = filename$;
+  if (!CanUseFile(sTemp, 1)) return(-1);
+  sTemp = "";
+
+  if (StartFileOperations() < 0)
+  {
+      print("ERROR: Cannot start file ops\n");
+      pulse(50, Write_Error);
+      return(-1);
+  }
+
+  iFileHandle = FileOpen(filename$, _O_CREAT | _O_WRONLY | _O_TRUNC | _O_TEXT);
+  if (iFileHandle < 0)
+  {
+    print("ERROR: Cannot open/create file '%s' for write.\nError Code=%d\n", filename$, iFileHandle);
+    pulse(50, Write_Error);
+    return(-1);
+  }
+
+	//Include version information
+	sWriteBuf = "#" + itoa(FILE_VERSION) + LINE_DELIM;
+	FileWrite(iFileHandle, sWriteBuf , len(sWriteBuf));
+
+  // this will show if any changes had been made from the original file
+  MakeString(sWriteBuf, "' EVENT DATA SAVED ON %s\n", DATE(1));
+  FileWrite(iFileHandle, sWriteBuf, len(sWriteBuf));
+
+  for (i=1 to g_iMaxUsedEvent)
+  {
+
+    if (g_Events[i].Free = FALSE)
+    {
+
+    	if (g_Events[i].HiddenState = 1)
+    	{
+    		Hidden = "H";
+    		ReadOnly="";
+    	}
+    	else if (g_Events[i].ReadOnly = 1)
+    	{
+    		ReadOnly = "R";
+    		Hidden="";
+    	}
+    	else
+    	{
+    		Hidden="";
+    		ReadOnly = "W";
+    	}
+
+    	//using makestring here since itoa does not handle signed_integers nicely
+      makestring(sTime,"%d",g_Events[i]._Time);
+      
+      sWriteBuf = itoa(i)                      + FIELD_DELIM +
+                  g_Events[i].Name             + FIELD_DELIM +
+                  itoa(g_Events[i].EventType)  + FIELD_DELIM +
+                  ltoa(g_Events[i]._StartDate) + FIELD_DELIM +
+                  ltoa(g_Events[i]._StopDate)  + FIELD_DELIM +
+                  itoa(g_Events[i].TimeBase)   + FIELD_DELIM +
+                  sTime                        + FIELD_DELIM +
+									g_Events[i].ScheduleInfo   	 + FIELD_DELIM +
+      						itoa(g_Events[i].Suspended)  + FIELD_DELIM +
+                  Hidden											 +
+                  Readonly										 + FIELD_DELIM +
+                  g_Events[i].LastModified		 + FIELD_DELIM +
+                  g_Events[i].USERDATA				 + LINE_DELIM;
+
+      FileWrite(iFileHandle, sWriteBuf, len(sWriteBuf));
+
+    }
+
+  }
+
+  iErrCode = FileClose(iFileHandle);
+  #IF_DEFINED DEBUG
+  print("closed file after write. Err Code=%d\n", iErrCode);
+  #ENDIF
+
+  if (iErrCode < 0)
+  {
+     print("ERROR: Closing file after write. Error code = (%d)\n", iErrCode);
+  }
+
+  FindFirst(filename$, g_fiDataFile);	//Set file data so auto load does not reload recently saved information which is already in memory -fix for bug #23413
+
+
+  if (EndFileOperations() < 0)
+  {
+      print("ERROR: Ending file ops.\n");
+  }
+
+  sTemp = filename$;
+  FreeFile(sTemp,1);
+  sTemp = "";
+
+}
+
+/////////////////////////////////////////////////////////////////////
+//
+// Function: signed_integer SaveEvents
+//
+// Parameters: <none>
+//
+// Return Value: number of events saved, or error code if negative
+//
+// Description: saves event information to file specified by
+//              the filename$ string_input. This information is written
+//              from the g_Events[] array.
+//
+/////////////////////////////////////////////////////////////////////
+signed_integer_function SaveEvents()
+{
+    /* The idea here is to only save the events
+       after there has been no save activity of 5
+       seconds.
+     */
+    Wait(SAVE_RETRIGGER_TIME, SaveWait)
+    {
+        WriteEventFile();
+    }
+    RetimeWait(SAVE_RETRIGGER_TIME, SaveWait);
+}
+
+/////////////////////////////////////////////////////////////////////
+//
+// Function: integer GetNormalizedEventTime(integer)
+//
+// Parameters: (IN) integer - the index of the event
+//
+// Return Value: the normalized event time, in minutes since midnight.
+//
+// Description: given an event, determines the event's time, in number
+//              of minutes since midnight. This works for all events
+//				regardless of their time base (AM, PM, Sunrise, Sunset).
+//
+/////////////////////////////////////////////////////////////////////
+signed_integer_function GetNormalizedEventTime(integer iEventIndex)
+{
+
+  integer iBaseTime;
+
+  switch (g_Events[iEventIndex].TimeBase)
+  {
+    case (TIMEBASE_AM):
+    {
+      return (g_Events[iEventIndex]._Time);
+    }
+
+    case (TIMEBASE_PM):
+    {
+      return (g_Events[iEventIndex]._Time + MINS_TIL_NOON);
+    }
+
+    case (TIMEBASE_SUNRISE):
+    {
+
+       iBaseTime = Morning_Hour * 60 + Morning_Min;
+       return (iBaseTime + g_Events[iEventIndex]._Time);
+
+    }
+
+    case (TIMEBASE_SUNSET):
+    {
+
+       iBaseTime = Night_Hour * 60 + Night_Min;
+
+       return (iBaseTime + g_Events[iEventIndex]._Time);
+
+    }
+
+  }
+
+
+}
+
+
+/////////////////////////////////////////////////////////////////////
+//
+// Function: signed_integer CompareFileDateAndTime(FILE_INFO, FILE_INFO)
+//
+// Parameters: (IN) FILE_INFO
+//			   (IN) integer - the time base (AM, PM, etc.)
+//
+// Return Value: string - a user-readable version of the event time
+//
+// Description: Given the time base and offset (as held by an event)
+//			    this function returns a nicely formatted string designed
+//              for display on a touchpanel.
+//
+/////////////////////////////////////////////////////////////////////
+signed_integer_function CompareFileDateAndTime(FILE_INFO fiFile1, FILE_INFO fiFile2)
+{
+   if (fiFile1.iDate > fiFile2.iDate)
+     return(1);
+   else if (fiFile1.iDate < fiFile2.iDate)
+     return(-1);
+   else  //files have identical dates
+   {
+     if (fiFile1.iTime > fiFile2.iTime)
+       return (1);
+     else if (fiFile1.iTime < fiFile2.iTime)
+       return (-1);
+     else	//files have identical times
+       return (0);
+   }
+}
+
+function ValidateEditEventTime()
+{
+  switch(g_EditEvent.TimeBase)
+  {
+    case(TIMEBASE_AM):
+    {
+      if (g_EditEvent._Time < 0)
+      {
+        g_EditEvent._Time = MAX_STD_TIME - (abs(g_EditEvent._Time) mod MAX_STD_TIME);
+        g_EditEvent.TimeBase = TIMEBASE_PM;
+
+      }
+      else if (g_EditEvent._Time >= MAX_STD_TIME)
+      {
+        g_EditEvent._Time = g_EditEvent._Time mod MAX_STD_TIME;
+        g_EditEvent.TimeBase = TIMEBASE_PM;
+      }
+    }
+
+    case(TIMEBASE_PM):
+    {
+      if (g_EditEvent._Time < 0)
+      {
+        g_EditEvent._Time = MAX_STD_TIME - (abs(g_EditEvent._Time) mod MAX_STD_TIME);
+        g_EditEvent.TimeBase = TIMEBASE_AM;
+
+      }
+      else if (g_EditEvent._Time >= MAX_STD_TIME)
+      {
+        g_EditEvent._Time = g_EditEvent._Time mod MAX_STD_TIME;
+        g_EditEvent.TimeBase = TIMEBASE_AM;
+      }
+    }
+
+    case(TIMEBASE_SUNRISE):
+    {
+      if (abs(g_EditEvent._Time) > MAX_AST_TIME)
+      {
+        if (g_EditEvent._Time < 0)
+          g_EditEvent._Time = -MAX_AST_TIME;
+        else
+          g_EditEvent._Time = MAX_AST_TIME;
+      }
+    }
+
+
+    case(TIMEBASE_SUNSET):
+    {
+      if (abs(g_EditEvent._Time) > MAX_AST_TIME)
+      {
+        if (g_EditEvent._Time < 0)
+          g_EditEvent._Time = -MAX_AST_TIME;
+        else
+          g_EditEvent._Time = MAX_AST_TIME;
+      }
+    }
+
+  }
+
+}
+
+function addEasterSunday(string holidayName)
+{
+	integer d, m, y;
+	integer g, c, h, i;
+
+	d = 0;
+	m = 0;
+	y = getYearNum();
+
+	g = y % 19;
+	c = y / 100;
+	h = (c - (c / 4) - ((8 * c + 13) / 25) + 19 * g + 15) % 30;
+	i = h - (h / 28) * (1 - (h / 28) * (29 / (h + 1)) * ((21 - g) / 11));
+
+	d = i - ((y + (y / 4) + i + 2 - c + (c / 4)) % 7) + 28;
+	m = 3;
+
+	if(d > 31)
+	{
+		m = m + 1;
+		d = d - 31;
+	}
+
+	for(i = 0 to MAX_HOLIDAYS)
+	{
+		if(g_Holidays[i].Name = "")
+		{
+			#if_defined DEBUG
+			print("\nAdding new holiday: '%s' at index %d", holidayName, i);	
+			#endif 
+		 
+			g_Holidays[i].Name = holidayName;
+			g_Holidays[i].Month = m;
+			g_Holidays[i].DayOfWeek = d;
+			g_Holidays[i].WhichWeek = nil;
+
+			break;
+		}
+	}
+}
+
+function addNewHoliday(string holidayName, integer _month, integer dayOfWeek, integer whichWeek)
+{
+	integer i;
+
+	for(i = 0 to MAX_HOLIDAYS)
+	{
+		if(g_Holidays[i].Name = "")
+		{
+			#if_defined DEBUG
+			print("\nAdding new holiday: '%s' at index %d", holidayName, i);	
+			#endif 
+		 
+			g_Holidays[i].Name = holidayName;
+			g_Holidays[i].Month = _month;
+			g_Holidays[i].DayOfWeek = dayOfWeek;
+			g_Holidays[i].WhichWeek = whichWeek;
+
+			break;
+		}
+	}
+}
+
+integer_function populateHolidayList()
+{
+	#if_defined DEBUG
+	print("\nGenerating holiday list, please wait.");
+	#endif
+
+	addNewHoliday(H_NYD, JANUARY, 1, nil);
+	addNewHoliday(H_MLK, JANUARY, MONDAY, THIRDWEEK);
+	addNewHoliday(H_PRS, FEBRUARY, MONDAY, THIRDWEEK);
+	addEasterSunday(H_EAS); // Easter gets it's own function because it's speeeeeecial.
+	addNewHoliday(H_MEM, MAY, MONDAY, LASTWEEK);
+	addNewHoliday(H_IND, JULY, 4, nil);
+	addNewHoliday(H_LAB, SEPTEMBER, MONDAY, FIRSTWEEK);
+	addNewHoliday(H_COL, OCTOBER, MONDAY, SECONDWEEK);
+	addNewHoliday(H_VET, NOVEMBER, 11, nil);
+	addNewHoliday(H_THK, NOVEMBER, THURSDAY, FOURTHWEEK);
+	addNewHoliday(H_CHR, DECEMBER, 25, nil);
+
+ 	#if_defined DEBUG
+	print("\nHoliday list generation complete.");
+	#endif
+
+	return(1);
+}
+
+push Hour_Up
+{
+ 	if(g_EditEvent.ReadOnly = 1)
+ 		TerminateEvent;
+
+	makestring(g_EditEvent.LastModified,"%02d%02d%d:%02d%02d%02d",GetMonthNum(),GetDateNum(),GetYearNum(),GetHourNum(),GetMinutesNum(),GetSecondsNum());
+
+  g_EditEvent._Time = g_EditEvent._Time + 60;
+  ValidateEditEventTime();
+}
+
+push Hour_Down
+{
+ 	if(g_EditEvent.ReadOnly = 1)
+ 		TerminateEvent;
+
+	makestring(g_EditEvent.LastModified,"%02d%02d%d:%02d%02d%02d",GetMonthNum(),GetDateNum(),GetYearNum(),GetHourNum(),GetMinutesNum(),GetSecondsNum());
+
+  g_EditEvent._Time = g_EditEvent._Time - 60;
+  ValidateEditEventTime();
+}
+
+push Minute_Up
+{
+ 	if(g_EditEvent.ReadOnly = 1)
+ 		TerminateEvent;
+
+	makestring(g_EditEvent.LastModified,"%02d%02d%d:%02d%02d%02d",GetMonthNum(),GetDateNum(),GetYearNum(),GetHourNum(),GetMinutesNum(),GetSecondsNum());
+
+  g_EditEvent._Time = g_EditEvent._Time + 1;
+  ValidateEditEventTime();
+}
+
+push Minute_Down
+{
+ 	if(g_EditEvent.ReadOnly = 1)
+ 		TerminateEvent;
+
+	makestring(g_EditEvent.LastModified,"%02d%02d%d:%02d%02d%02d",GetMonthNum(),GetDateNum(),GetYearNum(),GetHourNum(),GetMinutesNum(),GetSecondsNum());
+
+  g_EditEvent._Time = g_EditEvent._Time - 1;
+  ValidateEditEventTime();
+}
+
+push AM
+{
+ 	if(g_EditEvent.ReadOnly = 1)
+ 		TerminateEvent;
+
+	makestring(g_EditEvent.LastModified,"%02d%02d%d:%02d%02d%02d",GetMonthNum(),GetDateNum(),GetYearNum(),GetHourNum(),GetMinutesNum(),GetSecondsNum());
+
+  g_EditEvent.TimeBase = TIMEBASE_AM;
+  ValidateEditEventTime();
+}
+
+push PM
+{
+ 	if(g_EditEvent.ReadOnly = 1)
+ 		TerminateEvent;
+
+	makestring(g_EditEvent.LastModified,"%02d%02d%d:%02d%02d%02d",GetMonthNum(),GetDateNum(),GetYearNum(),GetHourNum(),GetMinutesNum(),GetSecondsNum());
+
+  g_EditEvent.TimeBase = TIMEBASE_PM;
+  ValidateEditEventTime();
+}
+
+push Sunrise
+{
+ 	if(g_EditEvent.ReadOnly = 1)
+ 		TerminateEvent;
+
+	makestring(g_EditEvent.LastModified,"%02d%02d%d:%02d%02d%02d",GetMonthNum(),GetDateNum(),GetYearNum(),GetHourNum(),GetMinutesNum(),GetSecondsNum());
+
+  g_EditEvent.TimeBase = TIMEBASE_SUNRISE;
+  ValidateEditEventTime();
+}
+
+push Sunset
+{
+ 	if(g_EditEvent.ReadOnly = 1)
+ 		TerminateEvent;
+
+	makestring(g_EditEvent.LastModified,"%02d%02d%d:%02d%02d%02d",GetMonthNum(),GetDateNum(),GetYearNum(),GetHourNum(),GetMinutesNum(),GetSecondsNum());
+
+  g_EditEvent.TimeBase = TIMEBASE_SUNSET;
+  ValidateEditEventTime();
+}
+
+push Hour_Up, Hour_Down, Minute_Up, Minute_Down, AM, PM, Sunrise, Sunset
+{
+ 	if(g_EditEvent.ReadOnly = 1)
+ 		TerminateEvent;
+
+  UpdateEditEventTime();
+}
+
+change Edit_Event
+push Revert_Edit_Event
+{
+  integer i;
+
+  for (i=g_iEditEvent to g_iMaxUsedEvent)
+  {
+  		if(g_Events[i].Free = FALSE && g_Events[i].HiddenState = 0)
+  		{
+  			SetEditEvent(i);
+  			break;
+  		}
+	}
+
+}
+
+push Edit_First_Event
+{
+  integer i;
+
+  for (i=1 to g_iMaxUsedEvent)
+  {
+  		if(g_Events[i].Free = FALSE && g_Events[i].HiddenState = 0)
+  		{
+  			SetEditEvent(i);
+  			break;
+  		}
+	}
+}
+
+push Edit_Last_Event
+{
+	integer i;
+
+  for (i=g_iMaxUsedEvent to 1 step -1)
+  {
+  		if(g_Events[i].Free = FALSE && g_Events[i].HiddenState = 0)
+  		{
+  			SetEditEvent(i);
+  			break;
+  		}
+  }
+}
+
+push Edit_Next_Event
+{
+  integer i;
+
+  for (i=g_iEditEvent+1 to g_iMaxUsedEvent)
+  {
+    if (g_Events[i].Free = FALSE && g_Events[i].HiddenState = 0)
+    {  SetEditEvent(i);
+       break;
+    }
+  }
+
+}
+
+push Edit_Prev_Event
+{
+  integer i;
+
+  for (i=g_iEditEvent-1 to 1 step -1)
+  {
+    if (g_Events[i].Free = FALSE && g_Events[i].HiddenState = 0 )
+    {
+       SetEditEvent(i);
+       break;
+    }
+  }
+}
+
+push Save_Edit_Event
+{
+  if (g_iEditEvent <= MAXEVENTS && g_iEditEvent > 0)
+  {
+
+  	if (g_EditEvent.ReadOnly = 1)
+  	{
+  		SetEditEvent(g_iEditEvent);
+  		TerminateEvent;
+  	}
+    
+    #IF_DEFINED DEBUG
+    print("Saving event #%u\n", g_iEditEvent);
+    #ENDIF
+    if (EventType(g_EditEvent.EventType) = BYDATE)
+       WriteDateArray();
+
+    CopyEvent(g_EditEvent, g_Events[g_iEditEvent]);
+    SaveEvents(); //New in v1.0.3: always save changes to disk
+  }
+}
+push NameEnter
+{
+
+ 	If(len(NewName)>0)
+		{
+         	g_events[g_iEditEvent].Name = NewName ;
+            SaveEvents();
+		}
+
+
+}
+push Suspend
+{
+  	string sTemp[16];
+
+		makestring(sTemp,"%02d%02d%d:%02d%02d%02d",GetMonthNum(),GetDateNum(),GetYearNum(),GetHourNum(),GetMinutesNum(),GetSecondsNum());
+	  g_EditEvent.LastModified = sTemp;
+	  g_Events[g_iEditEvent].LastModified = sTemp;
+
+	  g_EditEvent.Suspended = TRUE;		// Suspend state updated in g_EditEvent
+  	g_Events[g_iEditEvent].Suspended = TRUE;
+  	UpdateEditEventSuspended();
+  	SaveEvents();		// all events saved including Suspend
+
+}
+
+push Resume
+{
+  	string sTemp[16];
+
+		makestring(sTemp,"%02d%02d%d:%02d%02d%02d",GetMonthNum(),GetDateNum(),GetYearNum(),GetHourNum(),GetMinutesNum(),GetSecondsNum());
+	  g_EditEvent.LastModified = sTemp;
+	  g_Events[g_iEditEvent].LastModified = sTemp;
+
+	  g_EditEvent.Suspended = FALSE;		// Suspend state updated in g_EditEvent
+  	g_Events[g_iEditEvent].Suspended = FALSE;
+  	UpdateEditEventSuspended();
+  	SaveEvents();		// all events saved including Suspend
+}
+
+push Stop_Day_Up
+{
+	if(g_EditEvent.ReadOnly = 1)
+ 		TerminateEvent;
+
+	makestring(g_EditEvent.LastModified,"%02d%02d%d:%02d%02d%02d",GetMonthNum(),GetDateNum(),GetYearNum(),GetHourNum(),GetMinutesNum(),GetSecondsNum());
+
+   g_EditEvent._StopDate = IncrementDate(g_EditEvent._StopDate);
+}
+
+push Stop_Day_Down
+{
+ 	if(g_EditEvent.ReadOnly = 1)
+ 		TerminateEvent;
+
+	makestring(g_EditEvent.LastModified,"%02d%02d%d:%02d%02d%02d",GetMonthNum(),GetDateNum(),GetYearNum(),GetHourNum(),GetMinutesNum(),GetSecondsNum());
+
+   g_EditEvent._StopDate = DecrementDate(g_EditEvent._StopDate);
+}
+
+push Stop_Month_Up
+{
+ 	if(g_EditEvent.ReadOnly = 1)
+ 		TerminateEvent;
+
+	makestring(g_EditEvent.LastModified,"%02d%02d%d:%02d%02d%02d",GetMonthNum(),GetDateNum(),GetYearNum(),GetHourNum(),GetMinutesNum(),GetSecondsNum());
+
+   g_EditEvent._StopDate = IncrementMonth(g_EditEvent._StopDate);
+}
+
+push Stop_Month_Down
+{
+ 	if(g_EditEvent.ReadOnly = 1)
+ 		TerminateEvent;
+
+	makestring(g_EditEvent.LastModified,"%02d%02d%d:%02d%02d%02d",GetMonthNum(),GetDateNum(),GetYearNum(),GetHourNum(),GetMinutesNum(),GetSecondsNum());
+
+   g_EditEVent._StopDate = DecrementMonth(g_EditEvent._StopDate);
+}
+
+push Stop_Year_Up
+{
+ 	if (IsAnnualEvent(g_EditEvent.EventType)) return;
+
+ 	if(g_EditEvent.ReadOnly = 1)
+ 		TerminateEvent;
+
+	makestring(g_EditEvent.LastModified,"%02d%02d%d:%02d%02d%02d",GetMonthNum(),GetDateNum(),GetYearNum(),GetHourNum(),GetMinutesNum(),GetSecondsNum());
+
+   g_EditEvent._StopDate = IncrementYear(g_EditEvent._StopDate);
+}
+
+push Stop_Year_Down
+{
+   if (IsAnnualEvent(g_EditEvent.EventType)) return;
+
+ 	if(g_EditEvent.ReadOnly = 1)
+ 		TerminateEvent;
+
+	makestring(g_EditEvent.LastModified,"%02d%02d%d:%02d%02d%02d",GetMonthNum(),GetDateNum(),GetYearNum(),GetHourNum(),GetMinutesNum(),GetSecondsNum());
+
+   g_EditEvent._StopDate = DecrementYear(g_EditEvent._StopDate);
+}
+
+push Stop_Day_Up, Stop_Month_Up, Stop_Year_Up, Stop_Day_Down, Stop_Month_Down, Stop_Year_Down
+{
+ 	if(g_EditEvent.ReadOnly = 1)
+ 		TerminateEvent;
+
+  UpdateStopDate();
+}
+
+push Start_Day_Up
+{
+ 	if(g_EditEvent.ReadOnly = 1)
+ 		TerminateEvent;
+
+	makestring(g_EditEvent.LastModified,"%02d%02d%d:%02d%02d%02d",GetMonthNum(),GetDateNum(),GetYearNum(),GetHourNum(),GetMinutesNum(),GetSecondsNum());
+
+   g_EditEvent._StartDate = IncrementDate(g_EditEvent._StartDate);
+}
+
+push Start_Day_Down
+{
+ 	if(g_EditEvent.ReadOnly = 1)
+ 		TerminateEvent;
+
+	makestring(g_EditEvent.LastModified,"%02d%02d%d:%02d%02d%02d",GetMonthNum(),GetDateNum(),GetYearNum(),GetHourNum(),GetMinutesNum(),GetSecondsNum());
+
+   g_EditEvent._StartDate = DecrementDate(g_EditEvent._StartDate);
+}
+
+push Start_Month_Up
+{
+ 	if(g_EditEvent.ReadOnly = 1)
+ 		TerminateEvent;
+
+	makestring(g_EditEvent.LastModified,"%02d%02d%d:%02d%02d%02d",GetMonthNum(),GetDateNum(),GetYearNum(),GetHourNum(),GetMinutesNum(),GetSecondsNum());
+
+   g_EditEvent._StartDate = IncrementMonth(g_EditEvent._StartDate);
+}
+
+push Start_Month_Down
+{
+ 	if(g_EditEvent.ReadOnly = 1)
+ 		TerminateEvent;
+
+	makestring(g_EditEvent.LastModified,"%02d%02d%d:%02d%02d%02d",GetMonthNum(),GetDateNum(),GetYearNum(),GetHourNum(),GetMinutesNum(),GetSecondsNum());
+
+   g_EditEvent._StartDate = DecrementMonth(g_EditEvent._StartDate);
+}
+
+push Start_Year_Up
+{
+   if (IsAnnualEvent(g_EditEvent.EventType)) return; // no need, we're really just adding to nothing
+
+ 	if(g_EditEvent.ReadOnly = 1)
+ 		TerminateEvent;
+
+	makestring(g_EditEvent.LastModified,"%02d%02d%d:%02d%02d%02d",GetMonthNum(),GetDateNum(),GetYearNum(),GetHourNum(),GetMinutesNum(),GetSecondsNum());
+
+   g_EditEvent._StartDate = IncrementYear(g_EditEvent._StartDate);
+}
+
+push Start_Year_Down
+{
+  if (IsAnnualEvent(g_EditEvent.EventType)) return;
+
+ 	if(g_EditEvent.ReadOnly = 1)
+ 		TerminateEvent;
+
+	makestring(g_EditEvent.LastModified,"%02d%02d%d:%02d%02d%02d",GetMonthNum(),GetDateNum(),GetYearNum(),GetHourNum(),GetMinutesNum(),GetSecondsNum());
+
+   g_EditEvent._StartDate = DecrementYear(g_EditEvent._StartDate);
+}
+
+push Start_Day_Up, Start_Month_Up, Start_Year_Up, Start_Day_Down, Start_Month_Down, Start_Year_Down
+{
+ 	if(g_EditEvent.ReadOnly = 1)
+ 		TerminateEvent;
+
+  UpdateStartDate();
+}
+
+/*
+#IF_DEFINED DEBUG
+push DUMP_ALL
+{
+   integer i;
+   for (i = 1 to 100)
+   {
+      if (!g_Events[i].free)
+         dump(i);
+   }
+}
+#ENDIF
+*/
+
+push Annual_OnOff
+{
+  long_integer lStart, lStop;
+
+ 	if(g_EditEvent.ReadOnly = 1)
+ 		TerminateEvent;
+
+	makestring(g_EditEvent.LastModified,"%02d%02d%d:%02d%02d%02d",GetMonthNum(),GetDateNum(),GetYearNum(),GetHourNum(),GetMinutesNum(),GetSecondsNum());
+
+  g_EditEvent.EventType = ToggleBit(g_EditEvent.EventType, 8); //toggle the annual bit
+
+  if (IsAnnualEvent(g_EditEvent.EventType))
+  {
+
+    lStart = g_EditEvent._StartDate;
+    lStop = g_EditEvent._StopDate;
+    SetAnnualStartStop(lStart, lStop);
+    g_EditEvent._StartDate = lStart;
+    g_EditEvent._StopDate = lStop;
+
+  }
+
+  Edit_Event_Annual = IsAnnualEvent(g_EditEvent.EventType);
+  UpdateStartDate();
+  UpdateStopDate();
+  if (EventType(g_EditEvent.EventType) = BYDATE)
+     SetByDateOutputs();
+
+}
+
+#IF_DEFINED DEBUG
+change filename$
+{
+  print("filename$ = %s\n", filename$);
+}
+#ENDIF
+
+// Decide if a BYDATE Event fires on GDate.
+//
+// This works by opening the associated file and reading in each long which should be a date stored as a long mmddyyyy.
+// This function DOES NOT check the start and stop date of the base event.
+integer_function BYDATE_EventOccursOnDay_File(integer iEventNum, long_integer lJTarget)
+{
+   long_integer lTest;
+   long_integer lJTest;
+   string sReadBuf[BUFFER_SIZE];
+   string sLine[MAX_LINE_SIZE];
+   integer iFileHandle;
+   integer bBufferdone;
+   FILE_INFO  fiFile;
+
+
+   bBufferdone = 0;
+
+   if (StartFileOperations() < 0)
+   {
+       print("ERROR: Cannot start file ops\n");
+       pulse(50, Read_Error);
+       return(-1);
+   }
+
+ 	 if(g_Events[iEventNum].ScheduleInfo = "" || g_Events[iEventNum].ScheduleInfo = " " || g_Events[iEventNum].ScheduleInfo = "0")
+ 	 	return(FALSE);
+
+   if(FindFirst(g_Events[iEventNum].ScheduleInfo, fiFile) <> 0)
+   {
+     print("ERROR: Could not find file %s\n", g_Events[iEventNum].ScheduleInfo);
+     pulse(50, Read_Error);
+     return(-1);
+   }
+
+   iFileHandle = FileOpen(g_Events[iEventNum].ScheduleInfo, _O_RDONLY | _O_TEXT);
+   if (iFileHandle < 0)
+   {
+     print("ERROR: Cannot open file '%s' for read.\n Error Code=%d\n", g_Events[iEventNum].ScheduleInfo, iFileHandle);
+     pulse(50, Read_Error);
+     return(-1);
+   }
+
+   sLine = "";
+
+   while (FileRead(iFileHandle, sReadBuf, CHUNK_SIZE))
+   {
+
+      sReadBuf = sLine + sReadBuf;	//in case there was any leftover from the previous iteration
+      bBufferDone = 0;
+      do
+      {
+         sLine = remove(LINE_DELIM, sReadBuf);
+
+    	 if (len(sLine) = 0)
+         {
+  	        bBufferDone = 1;
+  	     }
+    	 else
+  	     {
+            lTest = atol(sLine);
+            If (IsAnnualEvent(g_Events[iEventNum].EventType))
+               lTest = CreateDateL(GetMonthFromLong(lTest), GetDayFromLong(lTest), GetYearNum());
+
+            lJTest = GetJDay(lTest);
+
+            if (lJTest = lJTarget)
+            {
+               FileClose(iFileHandle);
+			   if (EndFileOperations() < 0)
+			   {
+			      print("ERROR: Ending file ops.\n");
+			   }
+               if (EndFileOperations() < 0)
+               {
+                  print("ERROR: Ending file ops.\n");
+               }
+               return(TRUE);
+            }
+         }
+      } until (bBufferDone);
+
+      if (len(sReadBuf))
+  	     sLine = sReadBuf;
+   }
+
+   FileClose(iFileHandle);
+   if (EndFileOperations() < 0)
+   {
+      print("ERROR: Ending file ops.\n");
+   }
+
+   return(FALSE); // we couldn't find the current date
+}
+
+
+integer_function WEEKLY_EventOccursOnDay(integer iEventNum, long_integer GDate)
+{
+   string strDetails[MAX_SCHEDULE_INFO];
+
+   long_integer lStart, lStop;
+   integer iValidDays;
+   integer iValidMonths;
+
+   strDetails = g_Events[iEventNum].ScheduleInfo;
+   WEEKLY_ExtractInfo(strDetails, iValidDays, iValidMonths);
+
+   // do we care about the start or stop date?
+   if (UseStartStopDate(iEventNum))
+   {
+      // if we're an annual event we need to make sure our start and stop date are set correctly
+      If (IsAnnualEvent(g_Events[iEventNum].EventType))
+      {
+         lStart = g_Events[iEventNum]._StartDate;
+         lStop = g_Events[iEventNum]._StopDate;
+         SetAnnualStartStop(lStart, lStop);
+         g_Events[iEventNum]._StartDate = lStart;
+         g_Events[iEventNum]._StopDate = lStop;
+      }
+
+      if (BeforeOrAfterDate(g_Events[iEventNum]._StartDate, GDate) = AFTER)
+         return(FALSE);
+
+      if ((g_Events[iEventNum]._StopDate > 0) && (BeforeOrAfterDate(g_Events[iEventNum]._StopDate, GDate) = BEFORE)) //Bug fix #23830
+         return(FALSE);
+   }
+
+   if ((iValidMonths & g_iMonthMask[GetMonthFromLong(GDate)]) = 0)
+     return (FALSE);
+
+   if ((iValidDays & g_iDayOfWeekMask[GetDayofWeek(GDate)]) = 0)
+     return (FALSE);
+
+   return(TRUE);
+}
+
+integer_function PERIODIC_MonthlyDiff(long_integer lStart, long_integer lEnd)
+{
+   integer iTempMDiff;
+   integer iTempYDiff;
+
+   if (GetDayFromLong(lStart) = GetDayFromLong(lEnd))
+   {
+      iTempMDiff = GetMonthFromLong(lEnd) - GetMonthFromLong(lStart);
+      iTempYDiff = GetYearFromLong(lEnd) - GetYearFromLong(lStart);
+
+      if (iTempMDiff < 0)
+      {
+         iTempMDiff = iTempMDiff + 12;
+         iTempYDiff = iTempYDiff - 1; // add a year, subtract a year - it evens out
+      }
+
+      iTempMDiff = iTempMDiff + (iTempYDiff * 12);
+      return(iTempMDiff);
+   }
+   else
+      return(-2);
+
+   return(-1);
+}
+
+integer_function PERIODIC_YearlyDiff(long_integer lStart, long_integer lEnd)
+{
+   if (GetMonthFromLong(lStart) = GetMonthFromLong(lEnd))
+   {
+      if (GetDayFromLong(lStart) = GetDayFromLong(lEnd))
+         return(GetYearFromLong(lEnd) - GetYearFromLong(lStart));
+      else
+         return(-2);
+   }
+   else
+      return(-3);
+
+   return(-4);
+}
+
+integer_function PERIODIC_EventOccursOnDay(integer iEventNum, long_integer lJTarget)
+{
+   long_integer GDate;
+   long_integer lJStart;
+   long_integer lDiff;
+   long_integer lStart, lStop;
+   integer iDiff;
+   integer iPeriodicType; // what type of periodic event this is
+   integer iPeriod; // what type
+
+   GDate=GetGDate(lJTarget);
+
+   // if we're an annual event we need to make sure our start and stop date are set correctly
+   If (IsAnnualEvent(g_Events[iEventNum].EventType))
+   {
+     lStart = g_Events[iEventNum]._StartDate;
+     lStop = g_Events[iEventNum]._StopDate;
+     SetAnnualStartStop(lStart, lStop);
+     g_Events[iEventNum]._StartDate = lStart;
+     g_Events[iEventNum]._StopDate = lStop;
+   }
+
+
+   if (BeforeOrAfterDate(g_Events[iEventNum]._StartDate, GDate) = AFTER) return(FALSE); // start date hasn't happened yet
+
+   if (g_Events[iEventNum]._StopDate <> 0)
+      if (BeforeOrAfterDate(g_Events[iEventNum]._StopDate, GDate) = BEFORE) return(FALSE); // stop date already occurred
+
+   lJStart = GetJDay(g_Events[iEventNum]._StartDate);
+
+   PERIODIC_ExtractInfo(g_Events[iEventNum].ScheduleInfo, iPeriodicType, iPeriod); // extract info from string
+
+   switch(iPeriodicType)
+   {
+      case (PERIODIC_DAILY):
+      {
+         lDiff = lJTarget - lJStart;
+		 if (iPeriod = 0)
+			return(TRUE);
+         if ((lDiff UMod iPeriod) = 0)
+            return(TRUE);
+      }
+      case (PERIODIC_WEEKLY):
+      {
+         lDiff = lJTarget - lJStart;
+         iPeriod = 7 * iPeriod; // 7 days in a week, last i heard
+		 if (iPeriod = 0)
+			return(TRUE);
+         if ((lDiff UMod iPeriod) = 0)
+            return(TRUE);
+      }
+      case (PERIODIC_MONTHLY):
+      {
+         iDiff = PERIODIC_MonthlyDiff(g_Events[iEventNum]._StartDate, GDate);
+         if (iDiff < 0) return(FALSE); // the dates don't match
+		 if (iPeriod = 0)
+			return(TRUE);
+         if ((iDiff UMod iPeriod) = 0)
+            return(TRUE);
+      }
+      case (PERIODIC_YEARLY):
+      {
+         iDiff = PERIODIC_YearlyDiff(g_Events[iEventNum]._StartDate, GDate);
+         if (iDiff < 0) return(FALSE); // month and date don't match
+		 if (iPeriod = 0)
+			return(TRUE);
+         if ((iDiff UMod iPeriod) = 0)
+            return(TRUE);
+      }
+   };
+
+   return(FALSE); // if we made it this far we're failures
+}
+
+// EventOccursOnDay
+//
+// this function checks the type of an event and then determines if an event should fire
+integer_function EventOccursOnDay(integer iEventNum, long_integer JDay)
+{
+   switch (EventType(g_Events[iEventNum].EventType))
+   {
+      case (WEEKLY):
+      {
+         return(WEEKLY_EventOccursOnDay(iEventNum, GetGDate(JDay)));
+      }
+      case (PERIODIC):
+      {
+         return(PERIODIC_EventOccursOnDay(iEventNum, JDay));
+      }
+      case (BYDATE):
+      {
+         return(BYDATE_EventOccursOnDay_File(iEventNum, JDay));
+      }
+      DEFAULT:
+      {
+         #IF_DEFINED DEBUG
+	     print("Event: %s = FREE (invalid type)\n", g_Events[iEventNum].Name);
+   	     #ENDIF
+         g_Events[iEventNum].Free = TRUE;
+         return(0);
+      }
+   }
+}
+
+//StartingJDay = Last Day Checked. StartingTime = Last Time Checked in minutes past midnight.
+//RunSched assumes (CurrentJDay - StartingJDay) = 0 or 1
+Function RunSched(long_integer StartingJDay, integer StartingTime, long_integer CurrentJDay)
+{
+	integer i, index, iEvttime, iCurrentTime, WorkingIndex, LowestIndex, offset;
+  integer Events[MAXEVENTS][2]; //Technically this should be MAXEVENTS*2. Consider: MAXEVENTS occuring at sunset and sunset today earlier than sunset yesterday (< 24hrs)
+	integer Temp[2][2];
+	string msg[100];
+
+  #IF_DEFINED DEBUG
+  print("RunSched called with parameters:\n\tStartingJDay = %ld\n\tStartingTime = %d\n\tCurrentJDay = %ld\n",StartingJDay,StartingTime,CurrentJDay);
+  #ENDIF
+
+	index = 0;
+	iCurrentTime = GetHourNum() * 60 + GetMinutesNum();
+
+	if (StartingJDay != CurrentJDay)
+		offset = 1440; //Using a 24hr offset for multiple days such that 11:59 PM Yesterday = 1439 and 12:00AM Today = 1440. Necessary for sorting.
+  else
+  	offset = 0;
+
+	for (i = 1 to g_iMaxUsedEvent)
+	{
+		if (!g_Events[i].Suspended && g_Events[i].Free = FALSE)	//there may be gaps, so make sure each event is actually being used
+		{
+			iEvttime=GetNormalizedEventTime(i);
+
+			if (StartingJDay != CurrentJDay)	//The time range spans from yesterday to today
+			{
+				if (EventOccursOnDay(i,StartingJDay))
+				{
+					if(iEvttime >= StartingTime)
+					{
+						index = index + 1;
+						Events[index][1]=i;
+						Events[index][2]=iEvttime;
+					}
+				}
+
+				if (EventOccursOnDay(i,CurrentJDay))	//There is a chance the event will occur yesterday and today (astronomical events occuring < 24hrs apart)
+				{
+					if(iEvttime < iCurrentTime)
+					{
+						index = index + 1;
+						Events[index][1]=i;
+						Events[index][2]=iEvttime + offset;
+					}
+				}
+			}
+
+			else //StartingDay is CurrentDay
+			{
+				if (EventOccursOnDay(i,CurrentJDay))
+				{
+					if(iEvttime < iCurrentTime && iEvttime >= StartingTime)
+					{
+						index = index + 1;
+						Events[index][1]=i;
+						Events[index][2]=iEvttime;
+					}
+				}
+			}
+		}
+	}
+
+	//Event Array should not be large. Using a selection sort to fire the earliest event.
+	for(WorkingIndex = 1 to index)
+	{
+		LowestIndex = WorkingIndex;
+
+		for(i=WorkingIndex to index)
+		{
+			if(Events[i][2] < Events[LowestIndex][2]) //Comparing event times
+				LowestIndex=i;
+		}
+
+		if(LowestIndex != WorkingIndex)
+		{
+			Temp[1][1]=Events[WorkingIndex][1];
+			Temp[1][2]=Events[WorkingIndex][2];
+			Events[WorkingIndex][1]=Events[LowestIndex][1];
+			Events[WorkingIndex][2]=Events[LowestIndex][2];
+			Events[LowestIndex][1]=Temp[1][1];
+			Events[LowestIndex][2]=Temp[1][2];
+		}
+
+		i=Events[WorkingIndex][1]; //NOTE: FORMAT 'EVENTS[X][1]'=INDEX, 'EVENTS[X][2]'=TIME. SET 'i' TO THE EVENT INDEX TO FIRE.
+
+		#IF_DEFINED DEBUG
+			print("Firing Missed Event: %s\n",g_Events[i].Name);
+		#ENDIF
+
+		pulse(50, event_due[i]);
+	  fired_event_name$ = g_Events[i].Name;
+
+		makestring(msg,"Firing Missed Event: '%s' at %s on %s\n" ,g_Events[i].Name, time() ,date(1));
+	  Scheduler_Log=msg;
+
+	}
+}
+
+string_function generateScheduleString(integer dayOfWeek, integer _month)
+{
+	integer i;
+    string strTemp[20];
+
+	for(i = 0 to 6)
+	{
+		if(i = dayOfWeek)
+			strTemp = strTemp + "X";
+		else
+			strTemp = strTemp + "-";
+	}
+
+	strTemp = strTemp + ",";
+
+	for(i = 1 to 12)
+	{
+		if(i = _month)
+			strTemp = strTemp + "X";
+		else
+			strTemp = strTemp + "-";
+	}
+
+	return(strTemp);
+}
+
+
+/////////////////////////////////////////////////////////////////////
+//
+// Function: signed_integer LoadEvents
+//
+// Parameters: <none>
+//
+// Return Value: number of events read, or error code if negative
+//
+// Description: reads stored event information from file specified by
+//              the filename$ string_input. This information is stored
+//              in the g_Events[] array.
+//
+/////////////////////////////////////////////////////////////////////
+signed_integer_function LoadEvents()
+{
+  signed_integer iFileHandle;
+  signed_integer iErrCode;
+  string         sReadBuf[BUFFER_SIZE];
+  string         sLine[MAX_LINE_SIZE];
+  string         sTemp[MAX_LINE_SIZE];
+  string		 CurrentStrg[12];
+  //string       sEventName[MAX_EVENT_NAME];
+  //string       sDays[7];
+  //string 		 	 sMonths[12];
+  integer        iEventNum,iChunkCount;
+  integer        i, bBufferDone, search_temp, OneScheduleField, LastCheckedTime;
+  signed_integer holidayIndex;
+  long_integer	 Last,Current,Difference;
+  string 		 msg[60];
+  
+  sTemp = filename$;
+  if (!CanUseFile(sTemp, 1)) return(-1);
+  sTemp = "";
+
+  if (StartFileOperations() < 0)
+  {
+      print("ERROR: Cannot start file ops\n");
+      pulse(50, Read_Error);
+      return(-1);
+  }
+
+  if(FindFirst(filename$, g_fiDataFile) <> 0)
+  {
+    print("ERROR: Could not find file %s\n", filename$);
+    pulse(50, Read_Error);
+    return(-1);
+  }
+
+  iFileHandle = FileOpen(filename$, _O_RDONLY | _O_TEXT);
+  if (iFileHandle < 0)
+  {
+    print("ERROR: Cannot open file '%s' for read.\n Error Code=%d\n", filename$, iFileHandle);
+    pulse(50, Read_Error);
+    return(-1);
+  }
+
+  //mark all events as "Free" prior to loading
+  for (i = 1 to MAXEVENTS)
+  {
+    g_Events[i].Free = TRUE;
+  }
+
+  sLine = "";
+  iChunkCount=0;
+
+  while (FileRead(iFileHandle, sReadBuf, CHUNK_SIZE))
+  {
+  	//take a line at a time
+
+  	sReadBuf = sLine + sReadBuf;	//in case there was any leftover from the previous iteration
+  	bBufferDone = 0;
+
+  	iChunkCount = iChunkCount + 1;
+
+  	if(iChunkCount = 1)
+  	{
+	  	if (left(sReadBuf,1) = "#")
+	  	{
+	  		sLine = remove(LINE_DELIM, sReadBuf);
+
+	  		if ( atoi(sLine) > FILE_VERSION)
+	  		{
+	  			print("ERROR: Schedule version is later than %u\n", FILE_VERSION);
+	  			FileClose(iFileHandle);
+	  			EndFileOperations();
+
+	  			return (-1);
+	  		}
+	  	}
+	  }
+
+  	do
+  	{
+  		OneScheduleField=0;	//Flag for recognizing whether ScheduleInfo should contain 2 fields or one filename
+
+  	  sLine = remove(LINE_DELIM, sReadBuf);
+
+  	  if (len(sLine) = 0)
+
+  	    bBufferDone = 1;
+
+  	  else if (byte(sLine,1) <> COMMENT_CHAR)  //ignore all lines that begin with the comment character
+  	  {
+  	    iEventNum  = atoi(remove(FIELD_DELIM, sLine));
+
+  	    if (iEventNum < 0 || iEventNum > MAXEVENTS)
+  	    {
+  	      print("ERROR: Invalid event number. (%d)\n", iEventNum);
+  	      break;
+  	    }
+
+  	    //GET THE EVENT NAME
+  	    sTemp = remove(FIELD_DELIM, sLine);
+  	    g_Events[iEventNum].Name = left(sTemp, len(sTemp) - 1);	// remove delimeter
+
+  	    //GET THE TYPE OF THE EVENT
+  	    sTemp = remove(FIELD_DELIM, sLine);
+  	    g_Events[iEventNum].EventType = atoi(left(sTemp, len(sTemp) - 1));
+
+  	    //GET THE START DATE
+		sTemp = remove(FIELD_DELIM, sLine);
+
+        holidayIndex = -1;
+        dt.DateFormat = "MMddyyyy";
+
+		for(i = 0 to MAX_HOLIDAYS)
+		{
+			if(len(g_Holidays[i].Name) = 0) break;
+
+			if(findNoCase(g_Holidays[i].Name, g_Events[iEventNum].Name))
+			{
+				holidayIndex = i;
+
+				if(g_Holidays[i].WhichWeek = nil)
+					g_Events[iEventNum]._StartDate = atol(dt.GetDateTime(GetYearNum(), g_Holidays[i].Month, g_Holidays[i].DayOfWeek));
+				else
+					g_Events[iEventNum]._StartDate = atol(dt.GetNthDayOfNthWeek(GetYearNum(), g_Holidays[i].Month, g_Holidays[i].DayOfWeek, g_Holidays[i].WhichWeek));
+
+           		g_Events[iEventNum]._StopDate = g_Events[iEventNum]._StartDate;
+				sTemp = remove(FIELD_DELIM, sLine);
+			
+				break;
+			}
+		}
+        
+		if(holidayIndex < 0)
+		{
+			g_Events[iEventNum]._StartDate = atol(left(sTemp, len(sTemp) - 1));
+			sTemp = remove(FIELD_DELIM, sLine);
+			g_Events[iEventNum]._StopDate = atol(left(sTemp, len(sTemp) - 1));
+		}
+
+ 	    //GET THE EVENT TIMEBASE (AM, PM, SUNRISE, SUNSET)
+  	    sTemp = remove(FIELD_DELIM, sLine);
+
+  	    g_Events[iEventNum].TimeBase = atoi(left(sTemp, len(sTemp) - 1));
+
+  	    sTemp = remove(FIELD_DELIM, sLine);
+  	    if (len(sTemp) = 0)	// w/o checking the length first, we get an error LED on the Control Sys when the byte() function executes
+  	      g_Events[iEventNum]._Time = 0;
+
+  	    else
+  	    {
+     	  	g_Events[iEventNum]._Time = atoi(sTemp);
+
+          // the atoi() function does not handle negative numbers, so we need to do it ourselves
+  	      if (byte(sTemp, 1) = MINUSSIGN_CHAR)
+  	        g_Events[iEventNum]._Time = -g_Events[iEventNum]._Time;
+  	 	  }
+
+   	    sTemp = "";
+
+				//GET THE EVENT SCHEDULE INFO
+		  	sTemp = remove(FIELD_DELIM, sLine);	//Remove the first of two possible fields for ScheduleInfo
+
+		  	if(sTemp = "")			//EOL found
+		  		sTemp = sLine;
+
+			  //258 = annual ByDates event type, 2 = ByDates event type. These events will contain a filename in ScheduleInfo
+			  if(g_Events[iEventNum].EventType = 258 || g_Events[iEventNum].EventType = 2 )
+			  {
+			  		OneScheduleField = 1;
+			  }
+
+			  if(OneScheduleField = 0)
+			  	sTemp = sTemp + remove(FIELD_DELIM, sLine);
+
+		  	search_temp = find(FIELD_DELIM,sLine);	//Comma signals suspend flag or second Schedule Data field
+
+				if(search_temp = 0) //Will be zero if the previous remove left sLine with the last entry and a LINE DELIMITER
+				{
+					//Combine the two fields for weekly\periodic or save the filename as remaining in sLine
+					if(OneScheduleField = 0)
+						sTemp = sTemp + sLine;	//Note: the previous remove would have failed. Include remaining data.
+
+					g_Events[iEventNum].ScheduleInfo = left(sTemp, len(sTemp)-2);
+
+					g_Events[iEventNum].Suspended		 =	0;
+					g_Events[iEventNum].HiddenState	 =	0;
+					g_Events[iEventNum].ReadOnly		 =	0;
+					g_Events[iEventNum].LastModified =	"";
+					g_Events[iEventNum].UserData		 =  "";
+
+			 		#IF_DEFINED DEBUG
+			  		print("\nNO SUSPEND FLAG: ");
+			  	    #ENDIF
+			  }
+
+				else
+				{         
+					if(holidayIndex > -1)
+					{
+						if(g_Holidays[i].WhichWeek = nil)
+							g_Events[iEventNum].ScheduleInfo = generateScheduleString(dt.GetDayOfWeek(getYearNum(), g_Holidays[holidayIndex].Month, g_Holidays[holidayIndex].DayOfWeek), g_Holidays[holidayIndex].Month);
+						else
+							g_Events[iEventNum].ScheduleInfo = generateScheduleString(g_Holidays[holidayIndex].DayOfWeek, g_Holidays[holidayIndex].Month);
+					}
+					else
+						g_Events[iEventNum].ScheduleInfo = left(sTemp, len(sTemp)-1);
+
+					search_temp = find(FIELD_DELIM, sLine);
+
+					if(search_temp = 0)	//Reached LINE DELIMITER. No Hidden, Readonly, Modified, or User Data
+					{
+						sTemp = remove(LINE_DELIM, sLine);
+						g_Events[iEventNum].Suspended = atoi(sTemp);
+
+						g_Events[iEventNum].HiddenState	 =	0;
+						g_Events[iEventNum].ReadOnly		 =	0;
+						g_Events[iEventNum].LastModified =	"";
+						g_Events[iEventNum].UserData		 =  "";
+					}
+
+					else //Schedule is version 2 or later
+					{
+						sTemp = remove(FIELD_DELIM, sLine);
+						g_Events[iEventNum].Suspended = atoi(sTemp);
+
+						search_temp = find(FIELD_DELIM, sLine);
+
+						//Flags is the last field
+						if(search_temp = 0)
+						{
+							sTemp = remove(LINE_DELIM, sLine);
+
+							search_temp = find("H", sTemp);
+
+							if (search_temp = 0)
+								g_Events[iEventNum].HiddenState = 0;
+
+							else
+								g_Events[iEventNum].HiddenState = 1;
+
+							search_temp = find("R", sTemp);
+
+		        	if (search_temp = 0)
+								g_Events[iEventNum].ReadOnly = 0;
+
+							else
+								g_Events[iEventNum].ReadOnly = 1;
+
+
+							g_Events[iEventNum].LastModified = "";
+							g_Events[iEventNum].UserData = "";
+						}
+
+						else
+						{
+							sTemp = remove(FIELD_DELIM, sLine);
+
+							search_temp = find("H", sTemp);
+
+							if (search_temp = 0)
+								g_Events[iEventNum].HiddenState = 0;
+
+							else
+								g_Events[iEventNum].HiddenState = 1;
+
+							search_temp = find("R", sTemp);
+
+			        if (search_temp = 0)
+								g_Events[iEventNum].ReadOnly = 0;
+
+							else
+								g_Events[iEventNum].ReadOnly = 1;
+
+
+							search_temp = find(FIELD_DELIM, sLine);
+
+							//Last Modified is the last field
+							if(search_temp = 0)
+							{
+								sTemp = remove(LINE_DELIM, sLine);
+								g_Events[iEventNum].LastModified = left (sTemp,len(sTemp) - 2); //Remove the delimeter
+
+								g_Events[iEventNum].UserData = "";
+							}
+
+							//User Data is the last field
+							else
+							{
+								sTemp = remove(FIELD_DELIM, sLine);
+								g_Events[iEventNum].LastModified = left (sTemp,len(sTemp) - 1); //Remove the delimeter
+
+								sTemp = remove(LINE_DELIM, sLine);
+					  		g_Events[iEventNum].UserData = left(sTemp, len(sTemp)-2); 	//Remove the carriage return and line feed
+
+					 		}
+					 }
+					}
+
+			#IF_DEFINED DEBUG
+  	    	print("\nSUSPEND FLAG PRESENT");
+  	    	#ENDIF
+	  	}
+
+  	  //mark this event as "in use"
+  	  g_Events[iEventNum].Free = FALSE;
+
+			//#IF_DEFINED DEBUG
+        //dump(iEventNum);
+        //#ENDIF
+  	 }
+
+   } until (bBufferDone);
+
+  	//when we get here we were unable to find the line delimeter character. But there may still be
+  	//some left over characters in the buffer.
+  	if (len(sReadBuf))
+  	  sLine = sReadBuf;
+
+  }
+
+  iErrCode = FileClose(iFileHandle);
+  #IF_DEFINED DEBUG
+  print("closed file after read. Error code = %d\n", iErrCode);
+  #ENDIF
+
+  if (iErrCode < 0)
+  {
+     print("ERROR: Closing file after read. Error code = %d\n", iErrCode);
+  }
+
+  if (EndFileOperations() < 0)
+  {
+      print("ERROR: Ending file ops.\n");
+  }
+
+  sTemp = filename$;
+  FreeFile(sTemp,1);
+  sTemp = "";
+
+  //determine the maximum defined event
+  for (i = MAXEVENTS to 0 step -1)
+  {
+    if (g_Events[i].Free = FALSE)
+    {
+      g_iMaxUsedEvent = i;
+      Total_Used_Events = g_iMaxUsedEvent;
+      break;
+    }
+  }
+
+  for (i = g_iEditEvent to g_iMaxUsedEvent)
+  {
+    if (g_Events[i].Free = FALSE && g_Events[i].HiddenState = 0)
+    {
+      SetEditEvent(i);
+      break;
+    }
+  }
+
+  #IF_DEFINED DEBUG
+     print("File '%s' loaded.\n\n", filename$);
+  #ENDIF
+
+  makestring(msg,"Scheduler File Loaded at %s on %s\n" ,time() ,date(1));
+
+  Scheduler_Log=msg;
+
+  if (ExecuteMissedEvents)
+	{
+	 	//CODE FOR EXECUTING MISSED EVENTS
+	  i = GetHourNum() * 60 + GetMinutesNum();	//Re-using 'i'
+
+	  makestring(CurrentStrg,"%04d%02d%02d%04d", i, GetMonthNum(), GetDateNum(), GetYearNum());
+	  Current = GetJday(atol(right(CurrentStrg,8)));
+
+	  //LastChecked NONVOL string - cleared at new program load
+	  if (LastChecked = "")
+	  	RunSched(Current - 1, i, Current); //Run Events occuring in the last 24hrs
+
+	  else
+	  {
+	  	//LastChecked format: HHMMNNDDYYYY - MM is minutes, NN is months
+	  	if(LastChecked != CurrentStrg)
+	  	{
+	  		LastCheckedTime = atoi(left(LastChecked,4));
+	  		Last = GetJday(atol(right(LastChecked,8)));
+	   		Difference = Current - Last;	//Number of Days difference between the current day and last time checked
+
+	  		if (Difference > 1 || i - LastCheckedTime > 0)
+	  			RunSched(Current - 1, i, Current);	//Run Events occuring in the last 24hrs
+
+	  		else
+	  			RunSched(Last,LastCheckedTime, Current); //Run schedules starting from the last checked time
+	  	}
+	  }
+	  //CODE FOR EXECUTING MISSED EVENTS
+	}
+}
+
+push Load
+{
+  LoadEvents();
+}
+
+push Save
+{
+  SaveEvents();
+}
+
+// ****** BYDATE EVENTS ******
+//
+// DIGITAL INPUTS FOR BYDATE EVENT CHANGES
+push AddDate
+{
+ 	 if(g_EditEvent.ReadOnly = 1)
+ 			TerminateEvent;
+
+	 makestring(g_EditEvent.LastModified,"%02d%02d%d:%02d%02d%02d",GetMonthNum(),GetDateNum(),GetYearNum(),GetHourNum(),GetMinutesNum(),GetSecondsNum());
+
+   if (g_iByDateMaxIndex < MAX_DATES)
+   {
+      g_iByDateMaxIndex = g_iByDateMaxIndex + 1;
+      g_lDates[g_iByDateMaxIndex] = CreateDateL(GetMonthNum(), GetDateNum(), GetYearNum());
+
+      g_iByDateIndex = g_iByDateMaxIndex;
+   }
+}
+
+push DeleteDate
+{
+   integer iLoop;
+
+ 	 if(g_EditEvent.ReadOnly = 1)
+ 			TerminateEvent;
+
+	 makestring(g_EditEvent.LastModified,"%02d%02d%d:%02d%02d%02d",GetMonthNum(),GetDateNum(),GetYearNum(),GetHourNum(),GetMinutesNum(),GetSecondsNum());
+
+   if ((g_iByDateMaxIndex > 0) && (g_iByDateIndex > 0) && (g_iByDateIndex <= g_iByDateMaxIndex))
+   {
+      if (g_iByDateMaxIndex > 1)
+         for (iLoop = g_iByDateIndex to g_iByDateMaxIndex - 1)
+            g_lDates[iLoop] = g_lDates[iLoop + 1];
+
+      g_iByDateMaxIndex = g_iByDateMaxIndex - 1;
+      g_iByDateIndex = g_iByDateIndex - 1;
+
+      if (g_iByDateMaxIndex > 0)
+         if (g_iByDateIndex < 1)
+            g_iByDateIndex = 1;
+   }
+}
+
+push FirstDate
+{
+   g_iByDateIndex = 1;
+}
+
+push NextDate
+{
+   g_iByDateIndex = g_iByDateIndex + 1;
+   if (g_iByDateIndex > g_iByDateMaxIndex)
+      g_iByDateIndex = 1;
+}
+
+push PrevDate
+{
+   g_iByDateIndex = g_iByDateIndex - 1;
+   if (g_iByDateIndex < 1)
+      g_iByDateIndex = g_iByDateMaxIndex;
+}
+
+push LastDate
+{
+   g_iByDateIndex = g_iByDateMaxIndex;
+}
+
+push ByDateMonthUp
+{
+ 	 if(g_EditEvent.ReadOnly = 1)
+ 			TerminateEvent;
+
+	 makestring(g_EditEvent.LastModified,"%02d%02d%d:%02d%02d%02d",GetMonthNum(),GetDateNum(),GetYearNum(),GetHourNum(),GetMinutesNum(),GetSecondsNum());
+
+    g_lDates[g_iByDateIndex] = IncrementMonth(g_lDates[g_iByDateIndex]);
+}
+
+push ByDateMonthDown
+{
+ 	 if(g_EditEvent.ReadOnly = 1)
+ 			TerminateEvent;
+
+	 makestring(g_EditEvent.LastModified,"%02d%02d%d:%02d%02d%02d",GetMonthNum(),GetDateNum(),GetYearNum(),GetHourNum(),GetMinutesNum(),GetSecondsNum());
+
+    g_lDates[g_iByDateIndex] = DecrementMonth(g_lDates[g_iByDateIndex]);
+}
+
+push ByDateDayUp
+{
+ 	 if(g_EditEvent.ReadOnly = 1)
+ 			TerminateEvent;
+
+	 makestring(g_EditEvent.LastModified,"%02d%02d%d:%02d%02d%02d",GetMonthNum(),GetDateNum(),GetYearNum(),GetHourNum(),GetMinutesNum(),GetSecondsNum());
+
+    g_lDates[g_iByDateIndex] = IncrementDate(g_lDates[g_iByDateIndex]);
+}
+
+push ByDateDayDown
+{
+ 	 if(g_EditEvent.ReadOnly = 1)
+ 			TerminateEvent;
+
+	 makestring(g_EditEvent.LastModified,"%02d%02d%d:%02d%02d%02d",GetMonthNum(),GetDateNum(),GetYearNum(),GetHourNum(),GetMinutesNum(),GetSecondsNum());
+
+    g_lDates[g_iByDateIndex] = DecrementDate(g_lDates[g_iByDateIndex]);
+}
+
+push ByDateYearUp
+{
+ 	 if(g_EditEvent.ReadOnly = 1)
+ 			TerminateEvent;
+
+	 makestring(g_EditEvent.LastModified,"%02d%02d%d:%02d%02d%02d",GetMonthNum(),GetDateNum(),GetYearNum(),GetHourNum(),GetMinutesNum(),GetSecondsNum());
+
+   if (IsAnnualEvent(g_EditEvent.EventTYpe)) return;
+   g_lDates[g_iByDateIndex] = IncrementYear(g_lDates[g_iByDateIndex]);
+}
+
+push ByDateYearDown
+{
+ 	 if(g_EditEvent.ReadOnly = 1)
+ 			TerminateEvent;
+
+	 makestring(g_EditEvent.LastModified,"%02d%02d%d:%02d%02d%02d",GetMonthNum(),GetDateNum(),GetYearNum(),GetHourNum(),GetMinutesNum(),GetSecondsNum());
+
+   if (IsAnnualEvent(g_EditEvent.EventTYpe)) return;
+    g_lDates[g_iByDateIndex] = DecrementYear(g_lDates[g_iByDateIndex]);
+}
+
+push ByDateMonthUp, ByDateMonthDown, ByDateDayUp, ByDateDayDown, ByDateYearUp, ByDateYearDown, NextDate, AddDate, DeleteDate, PrevDate, FirstDate, LastDate
+{
+   	SetByDateOutputs();
+}
+
+// ****** PERIODIC EVENTS ******
+//
+// DIGITAL INPUTS FOR PERIODIC EVENT CHANGES
+push ChangePeriodicType
+{
+   integer ptype, period;
+
+
+   if (EventType(g_EditEvent.EventType) = PERIODIC)
+   {
+    	if(g_EditEvent.ReadOnly = 1)
+ 				TerminateEvent;
+
+			makestring(g_EditEvent.LastModified,"%02d%02d%d:%02d%02d%02d",GetMonthNum(),GetDateNum(),GetYearNum(),GetHourNum(),GetMinutesNum(),GetSecondsNum());
+
+      PERIODIC_ExtractInfo(g_EditEvent.ScheduleInfo, ptype, period);
+
+      ptype = ptype + 1;
+      if (ptype > PERIODIC_TYPES) ptype = 0;
+      g_EditEvent.ScheduleInfo = itoa(ptype) + FIELD_DELIM + itoa(period);
+
+      SetTypeSpecificOutputs();
+   }
+}
+
+push IncreasePeriod
+{
+   integer ptype, period;
+
+   if (EventType(g_EditEvent.EventType) = PERIODIC)
+   {
+    	if(g_EditEvent.ReadOnly = 1)
+ 				TerminateEvent;
+
+			makestring(g_EditEvent.LastModified,"%02d%02d%d:%02d%02d%02d",GetMonthNum(),GetDateNum(),GetYearNum(),GetHourNum(),GetMinutesNum(),GetSecondsNum());
+
+      PERIODIC_ExtractInfo(g_EditEvent.ScheduleInfo, ptype, period);
+
+      period = period + 1;
+      if (period > LONGEST_PERIOD) period = 0;
+      g_EditEvent.ScheduleInfo = itoa(ptype) + FIELD_DELIM + itoa(period);
+
+      SetTypeSpecificOutputs();
+   }
+}
+
+push DecreasePeriod
+{
+   integer ptype, period;
+
+   if (EventType(g_EditEvent.EventType) = PERIODIC)
+   {
+    	if(g_EditEvent.ReadOnly = 1)
+ 				TerminateEvent;
+
+			makestring(g_EditEvent.LastModified,"%02d%02d%d:%02d%02d%02d",GetMonthNum(),GetDateNum(),GetYearNum(),GetHourNum(),GetMinutesNum(),GetSecondsNum());
+
+      PERIODIC_ExtractInfo(g_EditEvent.ScheduleInfo, ptype, period);
+
+      period = period - 1;
+      if (period < 0) period = LONGEST_PERIOD;
+      g_EditEvent.ScheduleInfo = itoa(ptype) + FIELD_DELIM + itoa(period);
+
+      SetTypeSpecificOutputs();
+   }
+}
+
+// ****** WEEKLY EVENTS ******
+//
+// DIGITAL INPUTS FOR WEEKLY EVENT CHANGES
+function WEEKLY_ChangeDaysMonths(integer iBit)
+{
+   integer iValidDays, iValidMonths;
+
+   // make sure the current edit event is the correct type for this function
+   if (EventType(g_EditEvent.EventType) = WEEKLY && g_EditEvent.ReadOnly = 0)
+   {
+			makestring(g_EditEvent.LastModified,"%02d%02d%d:%02d%02d%02d",GetMonthNum(),GetDateNum(),GetYearNum(),GetHourNum(),GetMinutesNum(),GetSecondsNum());
+
+      WEEKLY_ExtractInfo(g_EditEvent.ScheduleInfo, iValidDays, iValidMonths);
+
+      if (iBit <= 7)  //day of the week flag
+      {
+         iValidDays = ToggleBit(iValidDays, iBit-1);
+      }
+      else				//month flag
+      {
+         iValidMonths = ToggleBit(iValidMonths, iBit-8);
+      }
+      g_EditEvent.ScheduleInfo = GetBitFieldStringFromInteger(iValidDays, 7) + FIELD_DELIM + GetBitFieldStringFromInteger(iValidMonths, 12);
+
+      SetTypeSpecificOutputs();
+   }
+}
+
+push Sunday_OnOff
+{
+   if(g_EditEvent.ReadOnly = 1)
+ 			TerminateEvent;
+
+	 makestring(g_EditEvent.LastModified,"%02d%02d%d:%02d%02d%02d",GetMonthNum(),GetDateNum(),GetYearNum(),GetHourNum(),GetMinutesNum(),GetSecondsNum());
+
+   WEEKLY_ChangeDaysMonths(1);
+}
+
+push Monday_OnOff
+{
+   if(g_EditEvent.ReadOnly = 1)
+ 			TerminateEvent;
+
+	 makestring(g_EditEvent.LastModified,"%02d%02d%d:%02d%02d%02d",GetMonthNum(),GetDateNum(),GetYearNum(),GetHourNum(),GetMinutesNum(),GetSecondsNum());
+
+   WEEKLY_ChangeDaysMonths(2);
+}
+
+push Tuesday_OnOff
+{
+   if(g_EditEvent.ReadOnly = 1)
+ 			TerminateEvent;
+
+	 makestring(g_EditEvent.LastModified,"%02d%02d%d:%02d%02d%02d",GetMonthNum(),GetDateNum(),GetYearNum(),GetHourNum(),GetMinutesNum(),GetSecondsNum());
+
+   WEEKLY_ChangeDaysMonths(3);
+}
+
+push Wednesday_OnOff
+{
+   if(g_EditEvent.ReadOnly = 1)
+ 			TerminateEvent;
+
+	 makestring(g_EditEvent.LastModified,"%02d%02d%d:%02d%02d%02d",GetMonthNum(),GetDateNum(),GetYearNum(),GetHourNum(),GetMinutesNum(),GetSecondsNum());
+
+   WEEKLY_ChangeDaysMonths(4);
+}
+
+push Thursday_OnOff
+{
+   if(g_EditEvent.ReadOnly = 1)
+ 			TerminateEvent;
+
+	 makestring(g_EditEvent.LastModified,"%02d%02d%d:%02d%02d%02d",GetMonthNum(),GetDateNum(),GetYearNum(),GetHourNum(),GetMinutesNum(),GetSecondsNum());
+
+   WEEKLY_ChangeDaysMonths(5);
+}
+
+push Friday_OnOff
+{
+   if(g_EditEvent.ReadOnly = 1)
+ 			TerminateEvent;
+
+	 makestring(g_EditEvent.LastModified,"%02d%02d%d:%02d%02d%02d",GetMonthNum(),GetDateNum(),GetYearNum(),GetHourNum(),GetMinutesNum(),GetSecondsNum());
+
+   WEEKLY_ChangeDaysMonths(6);
+}
+
+push Saturday_OnOff
+{
+   if(g_EditEvent.ReadOnly = 1)
+ 			TerminateEvent;
+
+	 makestring(g_EditEvent.LastModified,"%02d%02d%d:%02d%02d%02d",GetMonthNum(),GetDateNum(),GetYearNum(),GetHourNum(),GetMinutesNum(),GetSecondsNum());
+
+   WEEKLY_ChangeDaysMonths(7);
+}
+
+push Jan_OnOff
+{
+   if(g_EditEvent.ReadOnly = 1)
+ 			TerminateEvent;
+
+	 makestring(g_EditEvent.LastModified,"%02d%02d%d:%02d%02d%02d",GetMonthNum(),GetDateNum(),GetYearNum(),GetHourNum(),GetMinutesNum(),GetSecondsNum());
+
+   WEEKLY_ChangeDaysMonths(8);
+}
+
+push Feb_OnOff
+{
+   if(g_EditEvent.ReadOnly = 1)
+ 			TerminateEvent;
+
+	 makestring(g_EditEvent.LastModified,"%02d%02d%d:%02d%02d%02d",GetMonthNum(),GetDateNum(),GetYearNum(),GetHourNum(),GetMinutesNum(),GetSecondsNum());
+
+   WEEKLY_ChangeDaysMonths(9);
+}
+
+push Mar_OnOff
+{
+   if(g_EditEvent.ReadOnly = 1)
+ 			TerminateEvent;
+
+	 makestring(g_EditEvent.LastModified,"%02d%02d%d:%02d%02d%02d",GetMonthNum(),GetDateNum(),GetYearNum(),GetHourNum(),GetMinutesNum(),GetSecondsNum());
+
+   WEEKLY_ChangeDaysMonths(10);
+}
+
+push Apr_OnOff
+{
+   if(g_EditEvent.ReadOnly = 1)
+ 			TerminateEvent;
+
+	 makestring(g_EditEvent.LastModified,"%02d%02d%d:%02d%02d%02d",GetMonthNum(),GetDateNum(),GetYearNum(),GetHourNum(),GetMinutesNum(),GetSecondsNum());
+
+   WEEKLY_ChangeDaysMonths(11);
+}
+
+push May_OnOff
+{
+   if(g_EditEvent.ReadOnly = 1)
+ 			TerminateEvent;
+
+	 makestring(g_EditEvent.LastModified,"%02d%02d%d:%02d%02d%02d",GetMonthNum(),GetDateNum(),GetYearNum(),GetHourNum(),GetMinutesNum(),GetSecondsNum());
+
+   WEEKLY_ChangeDaysMonths(12);
+}
+
+push Jun_OnOff
+{
+   if(g_EditEvent.ReadOnly = 1)
+ 			TerminateEvent;
+
+	 makestring(g_EditEvent.LastModified,"%02d%02d%d:%02d%02d%02d",GetMonthNum(),GetDateNum(),GetYearNum(),GetHourNum(),GetMinutesNum(),GetSecondsNum());
+
+   WEEKLY_ChangeDaysMonths(13);
+}
+
+push Jul_OnOff
+{
+   if(g_EditEvent.ReadOnly = 1)
+ 			TerminateEvent;
+
+	 makestring(g_EditEvent.LastModified,"%02d%02d%d:%02d%02d%02d",GetMonthNum(),GetDateNum(),GetYearNum(),GetHourNum(),GetMinutesNum(),GetSecondsNum());
+
+   WEEKLY_ChangeDaysMonths(14);
+}
+
+push Aug_OnOff
+{
+   if(g_EditEvent.ReadOnly = 1)
+ 			TerminateEvent;
+
+	 makestring(g_EditEvent.LastModified,"%02d%02d%d:%02d%02d%02d",GetMonthNum(),GetDateNum(),GetYearNum(),GetHourNum(),GetMinutesNum(),GetSecondsNum());
+
+   WEEKLY_ChangeDaysMonths(15);
+}
+
+push Sep_OnOff
+{
+   if(g_EditEvent.ReadOnly = 1)
+ 			TerminateEvent;
+
+	 makestring(g_EditEvent.LastModified,"%02d%02d%d:%02d%02d%02d",GetMonthNum(),GetDateNum(),GetYearNum(),GetHourNum(),GetMinutesNum(),GetSecondsNum());
+
+   WEEKLY_ChangeDaysMonths(16);
+}
+
+push Oct_OnOff
+{
+   if(g_EditEvent.ReadOnly = 1)
+ 			TerminateEvent;
+
+	 makestring(g_EditEvent.LastModified,"%02d%02d%d:%02d%02d%02d",GetMonthNum(),GetDateNum(),GetYearNum(),GetHourNum(),GetMinutesNum(),GetSecondsNum());
+
+   WEEKLY_ChangeDaysMonths(17);
+}
+
+push Nov_OnOff
+{
+   if(g_EditEvent.ReadOnly = 1)
+ 			TerminateEvent;
+
+	 makestring(g_EditEvent.LastModified,"%02d%02d%d:%02d%02d%02d",GetMonthNum(),GetDateNum(),GetYearNum(),GetHourNum(),GetMinutesNum(),GetSecondsNum());
+
+   WEEKLY_ChangeDaysMonths(18);
+}
+
+push Dec_OnOff
+{
+   if(g_EditEvent.ReadOnly = 1)
+ 			TerminateEvent;
+
+	 makestring(g_EditEvent.LastModified,"%02d%02d%d:%02d%02d%02d",GetMonthNum(),GetDateNum(),GetYearNum(),GetHourNum(),GetMinutesNum(),GetSecondsNum());
+
+   WEEKLY_ChangeDaysMonths(19);
+}
+
+push FireEvent
+{
+	string temp[MAX_EVENT_NAME];
+	string msg[100];
+	integer i;
+
+	temp=lower(CmdEventName);
+
+	for (i=1 to g_iMaxUsedEvent)
+  {
+    if (g_Events[i].Free = FALSE)
+    {
+    	if(temp = lower(g_Events[i].Name))
+    	{
+    		pulse(50, event_due[i]);
+	    	fired_event_name$ = g_Events[i].Name;
+	      makestring(msg,"Fired '%s' at %s on %s\n" ,g_Events[i].Name, time() ,date(1));
+
+	      Scheduler_Log=msg;
+
+      	print("%s",msg);
+	    }
+	  }
+	}
+}
+
+Push List_Events
+{
+	integer iAbsTime;
+	string temp[MAX_EVENT_NAME];
+	integer i,base;
+	string AbsTime$[20];
+	long_integer CurrentJDay;
+
+	CurrentJDay = GetJDay(CreateDateL(GetMonthNum(), GetDateNum(), GetYearNum()));
+
+	for (i=1 to g_iMaxUsedEvent)
+  {
+    if (g_Events[i].Free = FALSE)
+    {
+     	iAbsTime=GetNormalizedEventTime(i);
+
+    	if (iAbsTime < 720)
+    		base = TIMEBASE_AM;
+    	else
+    	{
+    	 	base = TIMEBASE_PM;
+    		iAbsTime = iAbsTime - 720;
+    	}
+    	AbsTime$ = GetTimeString(iAbsTime, base);
+	    print("'%s' executes at %s", g_Events[i].Name, AbsTime$);
+
+	    if (g_Events[i].TimeBase > TIMEBASE_PM)
+	    {
+	    	AbsTime$ = GetTimeString(g_Events[i]._Time, g_Events[i].TimeBase);
+	   		print(" (%s)", AbsTime$);
+	   	}
+
+	   	if(EventOccursOnDay(i,CurrentJDay))
+	   		print(". This Event occurs today.\n");
+	   	else
+	   		print(". This Event does not occur today.\n");
+    }
+	}
+}
+
+
+//Test Function to Fire all Events now
+/*
+Function FireAll()
+{
+	integer i;
+
+ 	for (i=1 to g_iMaxUsedEvent)
+  {
+	 	if (!g_Events[i].Suspended && g_Events[i].Free = FALSE)	//there may be gaps, so make sure each event is actually being used
+	  {
+			if(EventOccursToday(i))
+	    {
+	     	pulse(50, event_due[i]);
+	       print("%s\n", g_Events[i].Name);
+	    }
+	  }
+  }
+}
+*/
+
+
+Push NewProgLoaded
+{
+	LastChecked = "";	
+}
+
+Function Main()
+{
+
+  integer iCurrentTime, iLastCheckedTime;
+  integer iCurrentDayOfWeek, iCurrentMonth;//, iCurrentYear;
+  integer i;
+  signed_integer iErrCode;
+  string msg[100];
+  long_integer CurrentJDay;
+
+  FILE_INFO fiDataFile;
+
+  WaitforInitializationComplete();
+
+  g_iDaysInMonth[1] = 31;
+  g_iDaysInMonth[2] = 28;
+  g_iDaysInMonth[3] = 31;
+  g_iDaysInMonth[4] = 30;
+  g_iDaysInMonth[5] = 31;
+  g_iDaysInMonth[6] = 30;
+  g_iDaysInMonth[7] = 31;
+  g_iDaysInMonth[8] = 31;
+  g_iDaysInMonth[9] = 30;
+  g_iDaysInMonth[10] = 31;
+  g_iDaysInMonth[11] = 30;
+  g_iDaysInMonth[12] = 31;
+
+  //these arrays are used for easy bitfield checking
+  g_iMonthMask[1]  = 0x0001;
+  g_iMonthMask[2]  = 0x0002;
+  g_iMonthMask[3]  = 0x0004;
+  g_iMonthMask[4]  = 0x0008;
+  g_iMonthMask[5]  = 0x0010;
+  g_iMonthMask[6]  = 0x0020;
+  g_iMonthMask[7]  = 0x0040;
+  g_iMonthMask[8]  = 0x0080;
+  g_iMonthMask[9]  = 0x0100;
+  g_iMonthMask[10] = 0x0200;
+  g_iMonthMask[11] = 0x0400;
+  g_iMonthMask[12] = 0x0800;
+
+  g_iDayOfWeekMask[0] = 0x0001;
+  g_iDayOfWeekMask[1] = 0x0002;
+  g_iDayOfWeekMask[2] = 0x0004;
+  g_iDayOfWeekMask[3] = 0x0008;
+  g_iDayOfWeekMask[4] = 0x0010;
+  g_iDayOfWeekMask[5] = 0x0020;
+  g_iDayOfWeekMask[6] = 0x0040;
+
+/*
+  //determine the highest event by looking at the output array
+
+  for (g_iMaxUsedEvent=MAXEVENTS to 1 step -1)
+  {
+     if (IsSignalDefined(event_due[g_iMaxUsedEvent]))
+       break;
+
+  }
+*/
+
+  g_iMaxUsedEvent = 0;
+
+  Total_Used_Events = g_iMaxUsedEvent;
+
+  g_fiDataFile.iTime = 0;
+  g_fiDataFile.iDate = 0;
+
+  populateHolidayList();
+
+  while (1) {  //run forever
+
+    delay(DELAYTIME);
+
+    while (enable)
+    {
+
+      //if the data file has changed since the last time it was loaded, load it now
+      if (AutoLoad)
+	  	{
+	      //we're going for efficiency here; don't worry about return codes
+	      if (StartFileOperations() >= 0)
+	      {
+	        iErrCode = FindFirst(filename$, fiDataFile);
+	      }
+	      else
+	      {
+	        print("StartFileOperations() failed.\n");
+	      }
+	      EndFileOperations();
+
+	      if (CompareFileDateAndTime(fiDataFile, g_fiDataFile) <> 0)
+            LoadEvents();
+      }
+
+      iCurrentTime  = GetHourNum()*60 + GetMinutesNum();	//number of minutes since midnite
+
+      if (iLastCheckedTime != iCurrentTime)	//we already dealt with this time, ignore until the minute changes
+      {
+
+        makestring(LastChecked,"%04d%02d%02d%04d", iCurrentTime, GetMonthNum(), GetDateNum(), GetYearNum());
+
+        #IF_DEFINED DEBUG
+        print("Checking Events on %s at %s (mins = %u)\n", date(1), time(), iCurrentTime);
+        #ENDIF
+
+    	for (i=1 to g_iMaxUsedEvent)
+    	{
+
+	       if (!g_Events[i].Suspended && g_Events[i].Free = FALSE)	//there may be gaps, so make sure each event is actually being used
+	       {
+    	       #IF_DEFINED DEBUG
+       	       print("Checking event %u. Normalized time = %d\n", i, GetNormalizedEventTime(i));
+    	       #ENDIF
+		       if (GetNormalizedEventTime(i) = iCurrentTime)
+		       {
+		       		 CurrentJDay = GetJDay(CreateDateL(GetMonthNum(), GetDateNum(), GetYearNum()));
+
+							 if (EventOccursOnDay(i,CurrentJDay))
+	             {
+	                pulse(50, event_due[i]);
+	                fired_event_name$ = g_Events[i].Name;
+                    Fired_due_index = i;
+
+	             		makestring(msg,"Fired '%s' at %s on %s\n" ,g_Events[i].Name, time() ,date(1));
+	             		Scheduler_Log=msg;
+
+	             }
+	          }
+	        }
+       }
+      }
+
+      iLastCheckedTime = iCurrentTime;
+
+      //delay((61 - GetSecondsNum()) * 100);   //wait between loops
+      delay(DELAYTIME);
+
+    } // while(enable)
+
+  } // while(1)
+}

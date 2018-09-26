@@ -1,0 +1,380 @@
+/* GreenPoint TDI - RBP
+
+Development Notes _________________________________________________________________________ Development Notes /*
+v0.4  : Threw away the use of FILEINFO to provide TimeStamp.
+v0.3  : Implemented new branch in fWrite() to rid of the try catch.
+		Added serial input for PathFile location.
+v0.2  : Changed declaration sizes of file contents and individual text strings.
+v0.1  : Catching and better defining what is believed to be a 3series exception realized but not handled in v0.0
+v0.0  : Module was used in Sat Barn CP3. The File_Busy_FB signal seems to hang high when initializing the file when no file exists.
+		This did throw an Exception or Error into the log. However it created the file fine. Once the file existed the module ran fine.
+
+Development Notes _________________________________________________________________________ Development Notes */
+
+// ________________________________________________________________________________ Module Compile Time Behavior
+#Enable_Dynamic                                     
+#Enable_Stack_Checking
+#Default_Volatile                      
+#Category                          "9"  //Memory
+#Analog_Serial_Expand              OutputsWithParams
+#Define_Constant cDebug            1
+#Output_Shift                      1
+
+// ___________________________________________________________________________________________________ Constants
+/*
+	The constants below can be changed per project directory
+	as long as the Max File Size does not exceed 65534
+	
+	Max File Size = cMaxListSize + (cMaxChar * cMaxListSize)
+*/
+#Define_Constant cMaxListSize      200
+#Define_Constant cMaxChar          255
+#Define_Constant cDelim            "\x1F"
+
+// _____________________________________________________________________________________________________ F1 Help
+//#HINT                              ""
+//#HELP_PDF_FILE ""
+#Help_Begin
+GreenPoint TDI   www.greenpointtdi.com
+
+Do not use file extention in the Parameter. Module will append extension .lst
+
+#Help_End
+
+// ________________________________________________________________________________________ Simpl Input - Output 
+Digital_Input   _SKIP_                                                       ;
+Digital_Input   Initialize_File                                              ;
+Digital_Input   Read                                                         ;
+Digital_Input   Edit_Save                                                    ;
+Analog_Input    Edit_Index                                                   ;
+String_Input    Edit_Text[cMaxChar]                                          ;
+String_Input    PathFile[128]                                                ;
+
+Digital_Output  File_Busy_FB                                                 ;
+String_Output   File_Time_Stamp_FB                                           ;
+Analog_Output   List_Size_Current_FB                                         ;
+Analog_Output   List_Size_Limit_FB                                           ;
+String_Output   Edit_Selected_Text_FB                                        ;
+String_Output   Text_FB[cMaxListSize]                                        ;
+
+// __________________________________________________________________________________________________ Parameters
+String_Parameter  Default_PathFile[128]                                      ;
+#BEGIN_PARAMETER_PROPERTIES Default_PathFile
+	propValidUnits       = unitString                                        ;
+	propDefaultUnit      = unitString                                        ;
+	propShortDescription = ""                                                ;
+#END_PARAMETER_PROPERTIES
+
+String_Parameter  UNUSED[5][6]                                               ;
+#BEGIN_PARAMETER_PROPERTIES UNUSED
+	propValidUnits  = unitString                                             ;
+	propDefaultUnit = unitString                                             ;
+	propDefaultValue= "UNUSED"                                               ;
+	propList        = {"UNUSED","UNUSED"}                                    ;
+#END_PARAMETER_PROPERTIES
+
+
+String_Parameter  Initialize_Text[cMaxListSize][cMaxChar]                    ;
+#BEGIN_PARAMETER_PROPERTIES Initialize_Text
+	propValidUnits  = unitString                                             ;
+	propDefaultUnit = unitString                                             ;
+#END_PARAMETER_PROPERTIES
+
+// _____________________________________________________________________________________________ Global Varibles
+Integer             g_iNum_Text_Signals_Defined                              ;
+Dynamic String      g_sText[cMaxChar][cMaxChar]                              ;
+Dynamic String      g_sFileContents[65500]                                   ;
+String              g_sPathFileExt[cMaxChar]                                 ;
+Signed_Integer      g_siFind, g_siHandle                                     ;
+Signed_Long_Integer g_sliBytes                                               ;
+File_Info           g_FileInfo                                               ;
+
+// ___________________________________________________________________________________________________ Functions
+Function fExport()
+{
+	Integer i, x                                                             ;
+	
+	i = 0                                                                    ;
+		
+	While(Find(cDelim, g_sFileContents))
+	{		
+		If(i < g_iNum_Text_Signals_Defined)
+		{
+			i = i + 1                                                        ;
+			g_sText[i] = Remove(cDelim, g_sFileContents)                     ;
+			g_sText[i] = Left(g_sText[i], Len(g_sText[i]) - 1)               ;
+		}
+		Else
+		{
+			Break ;
+		}
+	}
+	List_Size_Current_FB = i                                                 ;
+	
+	ProcessLogic()                                                           ;
+	
+	For(x = 1 To i Step 1)
+	{
+		Text_FB[x] = g_sText[x]                                              ;
+	}
+			
+	For(x = i + 1 To g_iNum_Text_Signals_Defined Step 1)
+	{
+		g_sText[x] = ""                                                      ;
+		Text_FB[x] = g_sText[x]                                              ;
+	}
+
+	If(Edit_Index <= g_iNum_Text_Signals_Defined)
+	{
+		If(Edit_Index)
+			Edit_Selected_Text_FB = g_sText[Edit_Index]                      ;
+	}
+}
+
+Function fCreateFile()
+{
+	Integer i;
+	
+	For(i = 1 To g_iNum_Text_Signals_Defined Step 1)
+	{
+		If(Len(Initialize_Text[i]))
+		{ 
+			g_sFileContents = g_sFileContents + Initialize_Text[i] + cDelim    ;
+		}
+	}
+	
+	StartFileOperations()                                                          ;
+		 
+	g_siHandle = FileOpen(g_sPathFileExt , _O_WRonly | _O_Creat | _O_Trunc | _O_Text)         ;
+
+	If(g_siHandle >= 0)
+	{
+		MakeString(File_Time_Stamp_FB, "%s File Created.", GetSymbolInstanceName())          ;
+	}
+	Else
+	{                                                                              
+		g_sliBytes = -1 			                                               ;
+		MakeString(File_Time_Stamp_FB, "%s Error File Create: %d", GetSymbolInstanceName(), g_siHandle)          ;
+	}
+	FileClose(g_siHandle)                                                          ;
+	
+	EndFileOperations()                                                            ;
+}
+
+Function fWrite(Integer Initialize)
+{
+	Integer i                                                                      ;
+	
+	g_sFileContents = ""                                                           ;
+	If(Initialize)
+	{		
+		fCreateFile() ;		
+	}
+	Else
+	{		
+		For(i = 1 To g_iNum_Text_Signals_Defined Step 1)
+		{
+			If(Len(g_sText[i]))
+			{
+				g_sFileContents = g_sFileContents + g_sText[i] + cDelim            ;
+			}
+		}
+	}
+	
+	StartFileOperations()                                                          ;
+			 
+	g_siHandle = FileOpen(g_sPathFileExt , _O_Creat | _O_WRonly | _O_Text)         ;
+
+	If(g_siHandle >= 0)
+	{
+		g_sliBytes = FileWrite(g_siHandle, g_sFileContents, Len(g_sFileContents))  ;
+	}
+	Else
+	{                                                                              
+		g_sliBytes = -1 			                                               ;
+		MakeString(File_Time_Stamp_FB, "%s Error Write Open: %d", GetSymbolInstanceName(), g_siHandle)          ;
+	}
+	FileClose(g_siHandle)                                                          ;
+	
+	EndFileOperations()                                                            ;
+	
+	If(g_sliBytes)
+	{
+		fExport()                                                                  ;
+		MakeString(File_Time_Stamp_FB, "%s   %s", Date(3), Time())                 ;
+	}
+	Else
+	{
+		MakeString(File_Time_Stamp_FB, "%s Error Write: %ld", GetSymbolInstanceName(), g_sliBytes)             ; 
+	}	
+}
+
+Function fRead()
+{
+	Integer i                                                                          ;
+			
+	StartFileOperations()                                                              ;
+	
+	g_siFind = FindFirst(g_sPathFileExt, g_FileInfo)                                   ;
+	FindClose()                                                                        ;
+	
+	If(g_siFind = 0)	
+	{	
+		g_siHandle = FileOpen(g_sPathFileExt , _O_RDonly | _O_Text)         ;
+		
+		If(g_siHandle >= 0)
+		{
+			g_sliBytes = FileRead(g_siHandle, g_sFileContents, FileLength(g_siHandle)) ;
+		}
+		Else
+		{
+			g_sliBytes = g_siHandle			                                           ;
+			MakeString(File_Time_Stamp_FB, "%s Error Read Open: %ld",GetSymbolInstanceName(), g_sliBytes)          ;
+		}
+		FileClose(g_siHandle)                                                          ;
+		EndFileOperations()                                                            ;
+		
+		If(g_sliBytes)
+		{
+			fExport()                                                                  ;
+			File_Time_Stamp_FB = FileDate(g_FileInfo, 1) + "  "                        + 
+								 FileTime(g_FileInfo)                                  ;
+		}
+		Else
+		{
+			MakeString(File_Time_Stamp_FB, "%s Error Read: %ld",GetSymbolInstanceName(), g_sliBytes)               ;
+		}
+	}
+	Else
+	{
+		EndFileOperations()                                                            ;
+		fWrite(1)                                                                      ;
+	}
+}
+
+
+// ________________________________________________________________________________________________ Simpl Events
+Push Initialize_File
+{
+	If(!File_Busy_FB) 
+	{
+		File_Busy_FB = On                                                ;
+		fWrite(1)                                                        ;
+		File_Busy_FB = Off                                               ;		
+	}
+	Else
+	{
+		//Semaphore Blocked
+	}
+}
+
+Push Read
+{ 
+	If(!File_Busy_FB) 
+	{ 
+		File_Busy_FB = On                                                    ;
+		fRead()                                                              ;
+		File_Busy_FB = Off                                                   ; 
+	}
+	Else
+	{
+		//Semaphore Blocked
+	} 
+}
+Push Edit_Save
+{
+	If(!File_Busy_FB) 
+	{ 
+		If(Edit_Index)
+		{	
+			If(Edit_Index <= g_iNum_Text_Signals_Defined)
+			{
+				File_Busy_FB = On                                                ;
+				g_sText[Edit_Index] = Edit_Text                                  ;
+				fWrite(0)                                                        ;
+				File_Busy_FB = Off                                               ;
+			}
+			Else
+			{
+				//Err, could be full... user wants to add more text than module was expanded and compiled for.
+			}
+		}
+		Else
+		{
+			//Err, Zero index is not valid 
+		} 
+	}
+	Else
+	{
+		//Semaphore Blocked
+	}	
+}
+Change Edit_Index
+{
+	If(!File_Busy_FB) 
+	{
+		If(Edit_Index)
+		{
+			If(Edit_Index <= g_iNum_Text_Signals_Defined)
+			{
+				If(Edit_Index <= List_Size_Current_FB)
+				{
+					Edit_Text             = g_sText[Edit_Index]                      ;
+					Edit_Selected_Text_FB = g_sText[Edit_Index]                      ;
+				}
+			}
+			Else
+			{
+				//Err, could be full... user wants to add more text than module was expanded and compiled for.
+			}	
+		}
+		Else
+		{
+			//Err, Zero index is not valid
+		}
+	}
+	Else
+	{
+		//Semaphore Blocked
+	}		
+}
+
+Change PathFile
+{
+	If(Len(PathFile))
+	{
+		g_sPathFileExt = PathFile + ".lst" ;
+	}
+}
+
+// ________________________________________________________________________________________________ Start Up Code
+Function Main() 
+{
+	Integer i ;
+	
+	g_sPathFileExt = Default_PathFile + ".lst" ;
+	
+	For(g_iNum_Text_Signals_Defined = cMaxListSize To 1 Step -1)
+	{
+		If(IsSignalDefined(Text_FB[g_iNum_Text_Signals_Defined]))
+		{
+			Break ;	
+		}
+	}
+	
+	List_Size_Limit_FB = g_iNum_Text_Signals_Defined                            ;
+	
+	ResizeArray(g_sText, g_iNum_Text_Signals_Defined, cMaxChar)                 ;
+	
+	i = g_iNum_Text_Signals_Defined + (g_iNum_Text_Signals_Defined * cMaxChar)	;
+	
+	// cMaxFileSize = cMaxListSize + (cMaxChar * cMaxListSize)
+	If(i < 65535)
+	{
+		ResizeString(g_sFileContents, i)      ;
+	}
+	Else
+	{
+		ResizeString(g_sFileContents, 65500)  ; // Possible File Size Error, if constants are not configured with consideration
+	}
+}

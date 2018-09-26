@@ -1,0 +1,337 @@
+/* GreenPoint TDI 
+
+Development Notes _________________________________________________________________________ Development Notes /*
+v0.1  : Added extra FB outputs
+		Added force login
+v0.0  : 
+
+Import Pin configuration from an upstream module that parses pins per touch panel
+Enable / Disable pins per touch panel
+
+
+#If_Defined cDebug
+#EndIf
+
+Development Notes _________________________________________________________________________ Development Notes */
+
+// ________________________________________________________________________________ Module Compile Time Behavior
+#Define_Constant cDebug            1
+#Enable_Dynamic                                     
+//#Enable_Trace
+#ENABLE_STACK_CHECKING
+#DEFAULT_VOLATILE                      
+#Category                          "21"  
+#Output_Shift                      2
+//#Analog_Serial_Expand              OutputsWithParams
+
+// ___________________________________________________________________________________________________ Constants
+#Define_Constant cPinSize            5
+ #Define_Constant cPinoversize            10
+
+#Define_Constant cMaxConfigData      512
+#Define_Constant cMaxPins            8
+#Define_Constant cDelim              "</tp>"
+#Define_Constant cPinCloseTag        "</pin>"
+
+// _____________________________________________________________________________________________________ F1 Help
+//#HINT                              ""
+//#HELP_PDF_FILE ""
+#Help_Begin
+
+Pin_Config_Import
+<tp>
+	<enable>Int 0 or 1</enable>
+	<pin lev="Int 1 thru 65534">5 numeric digits</pin>
+</tp>
+
+Analog Input Force_Login_Level
+Value=0:logout
+Value!=0: login at the value as the level.
+#Help_End
+// ________________________________________________________________________________________ Simpl Input - Output 
+Digital_Input  _SKIP_, _SKIP_                      ;
+Digital_Input  Logout                              ;
+String_Input   Pin_Entry[cPinoversize ]                 ;
+Buffer_Input   Pin_Config_Import[cMaxConfigData]   ;
+Analog_Input   Force_Login_Level                   ;
+
+Digital_Output Pin_Security_Enable_FB              ;
+Digital_Output Pin_Valid_Pulse_FB                  ;
+Digital_Output Pin_Invalid_Pulse_FB                ;
+Analog_Output  Pin_Level_Logged_In_FB              ;
+String_Output  Pin_Entry_FB                        ;
+String_Output  Error_FB                            ;
+String_Output  _SKIP_                              ;
+Analog_Output  Configured_Pin_Level[cMaxPins]      ;
+String_Output  Configured_Pin_Pin[cMaxPins]        ;
+// __________________________________________________________________________________________________ Parameters
+String_Parameter Hard_Coded_Pin[cPinSize]          ;
+#Begin_Parameter_Properties Hard_Coded_Pin
+	propValidUnits = unitString                    ;
+	propDefaultValue = "19888"                     ;
+#End_Parameter_Properties
+
+// __________________________________________________________________________________________________ Structures
+Structure structurePin
+{
+	String  sPin[cPinSize] ;
+	Integer iLevel         ;
+}                          ;
+
+Dynamic structurePin g_structPin_Config[1]     ;
+
+// _____________________________________________________________________________________________ Global Varibles
+Integer g_iNumber_of_Pins                          ;
+String  g_sPin_Config_Import[cMaxConfigData]       ;
+String  g_sSingle_Pin_Data[255] ;
+// ___________________________________________________________________________________________________ Functions
+String_Function fXML_PCDATA(String Data, String Tag)
+{
+	String  sStart[24], sEnd[25]                                ;
+	String  sReturn[255]                                        ;
+	Integer iStart,     iEnd                                    ;
+	 	
+	If(Find(Tag, Data))		
+	{		
+		sStart = "<"  + Tag                                     ;
+		sEnd   = "</" + Tag + ">"                               ; 
+		
+		iStart = Find(sStart, Data)                             ;
+		If(iStart)
+		{
+			iStart = Find(">", Data, iStart) + 1                ;
+			If(iStart)
+			{
+				iEnd   = Find(sEnd, Data)                       ;
+				If(iEnd)
+				{		
+					sReturn = Mid(Data, iStart, iEnd - iStart)  ;
+	            	Return(sReturn)                             ;
+	            }
+			}
+		}		           
+	}
+	Return("")                                                  ;
+}
+
+String_Function fXML_Attribute(String Data, String Tag, String Attribute)
+{
+	Integer iStart, iCount                                              ;
+    String  sReturn[255]                                                ;
+    String  sAttribute[64]                                              ;
+	String  sTag[64]                                                    ;
+	
+	sTag = "<" + Tag                                                    ;
+	
+	If(Find(sTag, Data))                                          
+	{                                                            
+		iStart = Find(sTag, Data) + Len(sTag)                           ;
+		sAttribute = Attribute + "=\x22"                                ; 
+		
+		If(Find(sAttribute, Data, iStart))
+		{ 
+			iStart  = Find(sAttribute, Data, iStart) + Len(sAttribute)  ;
+			iCount  = Find("\x22", Data, iStart)                        ;
+			iCount  = iCount - iStart                                   ;
+			sReturn = Mid(Data, iStart, iCount)                         ;
+			
+			Return(sReturn)                                             ;
+		}                                             
+		Return("")                                                      ;
+	}
+	Return("")                                                          ;
+}
+
+Integer_Function fPin_Config_Count(String sData)
+{
+	Integer iCount ;
+	Integer iFind_Position ;
+	
+	iCount = 0 ;
+	iFind_Position = 1 ;
+	
+	While(Find(cPinCloseTag, sData, iFind_Position) > 0)
+	{
+		iCount = iCount + 1 ;
+		iFind_Position = Find(cPinCloseTag, sData, iFind_Position) + 1 ;
+	}
+	
+	Return(iCount) ;
+}
+
+Function fPin_Valid(Integer i)
+{
+	Pin_Entry_FB = "Valid"                              ;
+	Pin_Level_Logged_In_FB = g_structPin_Config[i].iLevel   ; 
+	Delay(150)                                              ;
+	Pulse(1, Pin_Valid_Pulse_FB)                            ;
+	
+	Pin_Entry_FB = ""                                   ;
+}
+
+Function fPin_Invalid()
+{
+	Pin_Entry_FB = "Invalid"                       ;
+	Delay(150)                                          ;
+	Pulse(1, Pin_Invalid_Pulse_FB)                     ;
+	Pin_Entry_FB = ""                              ;
+}
+
+String_Function fMask(String sData)
+{
+	Integer i                                      ;
+	String  sMask[cPinSize]                        ;
+	
+	For(i = Len(sData) To 1 Step -1 )
+	{
+		sMask = sMask + "*"                        ;
+	}
+	
+	Return(sMask)                                  ;	
+}
+
+Function fPin_Check(String sData)
+{
+	Integer i ;
+	
+	If(Len(sData) = cPinSize)
+	{
+		If(g_iNumber_of_Pins > 0)
+		{
+			For(i = 1 To g_iNumber_of_Pins Step 1)
+			{			
+				If(sData = g_structPin_Config[i].sPin )
+				{
+					fPin_Valid(i)   ;
+					Break           ;
+				}
+			}
+		}
+		If(sData = g_structPin_Config[0].sPin)
+		{
+			i = 0              ;
+			fPin_Valid(0)      ;			
+		}
+		If(i > g_iNumber_of_Pins)
+		{
+			fPin_Invalid() ;
+		}
+	}	
+}
+Function fLogout()
+{
+	Pin_Level_Logged_In_FB = 0 ;
+}
+
+// ________________________________________________________________________________________________ Simpl Events
+Push Logout
+{
+	fLogout() ;		
+}
+Change Pin_Entry
+{
+	IF(len(Pin_Entry)< cPinSize)
+	{
+       Pin_Entry_FB = fMask(Pin_Entry) ;
+	}
+	else If(Len(Pin_Entry)=cPinSize)
+	{
+		Pin_Entry_FB = fMask(Pin_Entry) ;		
+		fPin_Check(Pin_Entry)                ;
+	}
+	Else
+	{
+		Pin_Entry_FB = "" ;
+	}
+}
+Change Force_Login_Level
+{
+	If(Force_Login_Level)
+	{
+		Pin_Level_Logged_In_FB = Force_Login_Level   ;
+		Pulse(1, Pin_Valid_Pulse_FB)                 ; 
+	}
+	Else
+	{
+		fLogout() ;		
+	}
+}
+
+ThreadSafe Change Pin_Config_Import
+{
+	Integer i                    ;
+	Signed_Integer siReturn      ;
+	
+	Try
+	{
+		g_sPin_Config_Import = Gather(cDelim, Pin_Config_Import) ;
+	    
+	    If(Find(cDelim, g_sPin_Config_Import))
+	    {			
+			Pin_Security_Enable_FB = AtoI(fXML_PCDATA(g_sPin_Config_Import, "enable")) ;
+			
+			g_iNumber_of_Pins = fPin_Config_Count(g_sPin_Config_Import) ;
+			
+			If(g_iNumber_of_Pins)			
+			{
+				siReturn = ResizeStructureArray(g_structPin_Config, g_iNumber_of_Pins) ;
+				If(siReturn = 0)
+				{
+					i = 0 ;
+					While(Find(cPinCloseTag, g_sPin_Config_Import))
+					{
+						i = i + 1 ;
+						
+						g_sSingle_Pin_Data = Remove(cPinCloseTag, g_sPin_Config_Import) ;
+						
+						g_structPin_Config[i].iLevel = Atoi(fXML_Attribute(g_sSingle_Pin_Data, "pin", "lev")) ;
+						
+						g_structPin_Config[i].sPin = fXML_PCDATA(g_sSingle_Pin_Data, "pin") ;
+						
+						If(IsSignalDefined(Configured_Pin_Pin[i]))
+						{
+							Configured_Pin_Pin[i] = g_structPin_Config[i].sPin;
+							Configured_Pin_Level[i] = g_structPin_Config[i].iLevel;
+						}
+					}
+				}// Resize of structure failed
+				Else
+				{
+					#If_Defined cDebug
+					MakeString(Error_FB, "Resize Structure Error = 0x%X", siReturn);
+					#EndIf					
+				}
+			}// Count of Pins is Zero
+			Else
+			{
+				#If_Defined cDebug
+				MakeString(Error_FB, "No pin element found");
+				#EndIf
+			}
+			g_structPin_Config[0].iLevel = 65535 ;
+			g_structPin_Config[0].sPin = Hard_Coded_Pin ;
+		}// Did not find cDelim
+		Else
+		{
+			#If_Defined cDebug
+			MakeString(Error_FB, "No cDelim");
+			#EndIf
+		}
+	}
+	Catch
+	{
+		#If_Defined cDebug
+		MakeString(Error_FB, "%s", GetExceptionMessage());
+		#EndIf
+	}
+}
+// ________________________________________________________________________________________________ Start Up Code
+Function Main() 
+{
+//	Integer i                                                                      ;
+	
+//	WaitForInitializationComplete()                                                ;
+	g_iNumber_of_Pins = 0 ;
+	g_structPin_Config[0].iLevel = 65535 ;
+	g_structPin_Config[0].sPin = Hard_Coded_Pin ;	
+}

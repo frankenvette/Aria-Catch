@@ -1,0 +1,132 @@
+[BEGIN]
+  Version=1
+[END]
+[BEGIN]
+  ObjTp=FSgntr
+  Sgntr=UserSPlus
+  RelVrs=1
+  IntStrVrs=1
+  SPlusVrs=4.04.01
+  CrossCplrVrs=1.3
+[END]
+[BEGIN]
+  ObjTp=Hd
+  Cmn1=GreenPoint TDI   www.greenpointtdi.com   \\   TCP/IP CLient that||1
+  Cmn2=can dynamically change the port and ip address \\   \\   TX$ is||1
+  Cmn3=limited to 255 characters per transmit.\\   \\   RX$ puts out the||1
+  Cmn4=the return data in 50 character chunks.\\   \\   Port = 0~65535||1
+  Cmn5=port to connect the socket on.\\   IP   = IP address to connect||1
+  Cmn6=the socket on.\\   \\   F1 a TCP/IP Client symbol in Simpl for the||1
+  Cmn7=rest of the In-Out definitions.\\   \\||3
+[END]
+[BEGIN]
+  ObjTp=Symbol
+  Exclusions=1,19,20,21,88,89,167,168,179,213,214,215,216,217,225,226,248,249,266,267,310,718,756,854,
+  Exclusions_CDS=5
+  Inclusions_CDS=6
+  Name=GP Device Dynamic TCP-IP Socket v0.1
+  SmplCName=GP Device Dynamic TCP-IP Socket v0.1.usp
+  Code=1
+  SysRev5=4.006
+  SMWRev=3.00.00
+  InputCue1=[~UNUSED~]
+  InputSigType1=Digital
+  InputCue2=[~UNUSED~]
+  InputSigType2=Digital
+  InputCue3=Connect
+  InputSigType3=Digital
+  OutputCue1=Connect_F
+  OutputSigType1=Digital
+  InputList2Cue1=[~UNUSED~]
+  InputList2SigType1=Analog
+  InputList2Cue2=Port
+  InputList2SigType2=Analog
+  InputList2Cue3=IP
+  InputList2SigType3=Serial
+  InputList2Cue4=TX$
+  InputList2SigType4=Serial
+  OutputList2Cue1=Status
+  OutputList2SigType1=Analog
+  OutputList2Cue2=Port_FB
+  OutputList2SigType2=Analog
+  OutputList2Cue3=IP_FB
+  OutputList2SigType3=Serial
+  OutputList2Cue4=RX$
+  OutputList2SigType4=Serial
+  ParamCue1=[Reference Name]
+  ParamCue2=Default_Port
+  ParamSigType2=Constant
+  ParamCue3=Default_IP
+  ParamSigType3=String
+  MinVariableInputs=3
+  MaxVariableInputs=3
+  MinVariableInputsList2=4
+  MaxVariableInputsList2=4
+  MinVariableOutputs=1
+  MaxVariableOutputs=1
+  MinVariableOutputsList2=4
+  MaxVariableOutputsList2=4
+  MinVariableParams=2
+  MaxVariableParams=2
+  Expand=expand_separately
+  Expand2=expand_separately
+  OffsetOutputs=2
+  ProgramTree=Logic
+  SymbolTree=46
+  UserSymTreeName=Direct Socket
+  Hint=TCP/IP CLient that can dynamically change the port and ip address
+  PdfHelp=
+  HelpID= 
+  Render=4
+  Smpl-C=16
+  CompilerCode=-48
+  CompilerParamCode=27
+  CompilerParamCode5=14
+  NumFixedParams=1
+  Pp1=1
+  Pp2=2
+  Pp3=3
+  MPp=3
+  NVStorage=10
+  ParamSigType1=String
+  SmplCInputCue1=o#
+  SmplCOutputCue1=i#
+  SmplCInputList2Cue1=an#
+  SmplCOutputList2Cue1=ai#
+  SPlus2CompiledName=S2_GP_Device_Dynamic_TCP_IP_Socket_v0_1
+  SymJam=NonExclusive
+  FileName=GP Device Dynamic TCP-IP Socket v0.1.ush
+  SIMPLPlusModuleEncoding=0
+  clz1=mediaTune
+  clz2=DateTimeClass
+[END]
+[BEGIN]
+  ObjTp=Dp
+  H=1
+  Tp=1
+  NoS=False
+[END]
+[BEGIN]
+  ObjTp=Dp
+  H=2
+  Tp=1
+  HD=True
+  DV=12302d
+  Sgn=0
+  Lng=False
+  NF=1
+  NoS=True
+  DNF=1
+  VVS=1
+  LR=1d
+  HR=65535d
+[END]
+[BEGIN]
+  ObjTp=Dp
+  H=3
+  Tp=1
+  HD=True
+  DV=10.254.2.51
+  NoS=False
+  VVS=0
+[END]

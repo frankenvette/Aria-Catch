@@ -1,0 +1,25 @@
+<?xml version="1.0"?>
+<HTMLConfig>
+<obj>
+	<Font FS="13" FF="Arial" FC="#C19A6B" SP="<B>"/>
+	<CIPS T="S" SJ="101" DT="" AT=""/>
+	<Format FT="<BR>"/>
+</obj>
+<obj>
+	<Font FS="11" FF="Arial" FC="#FFFFFF" SP="<B>"/>
+	<CIPS T="S" SJ="2801" DT="" AT=""/>
+	<Format FT="<BR>"/>
+</obj>
+<obj>
+	<Font FS="11" FF="Arial" FC="#FFFFFF" SP="<B>"/>
+	<CIPS T="" SJ="" DT="Vol:" AT="Vol:"/>
+	<Format FT=""/>
+</obj>
+<obj>
+	<Font FS="11" FF="Arial" FC="#FFFFFF" SP="<B>"/>
+	<CIPS T="A" SJ="2801" DT="" AT="%"/>
+	<Format FT=""/>
+</obj>
+</HTMLConfig>
+
+

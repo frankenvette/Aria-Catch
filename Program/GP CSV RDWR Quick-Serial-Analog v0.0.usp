@@ -1,0 +1,224 @@
+/* GreenPoint TDI - RBP
+
+Development Notes _________________________________________________________________________ Development Notes /*
+v0.0  : quick and easy 2x16 cell reader and editor, no filtering
+
+If you need full .csv operations contact GreenPoint TDI - http://www.greenpointtdi.com/contact-greenpointtdi.php
+We have developed full libraries.
+
+Development Notes _________________________________________________________________________ Development Notes */
+
+// ________________________________________________________________________________ Module Compile Time Behavior
+#CATEGORY                          "46" "CSV"
+#ENABLE_STACK_CHECKING
+#DEFAULT_VOLATILE                      
+#DEFINE_CONSTANT cMaxRow           16
+#DEFINE_CONSTANT cMaxChar          32
+#DEFINE_CONSTANT cMaxFileSize      2048
+//#Output_Shift                      4
+//#ENABLE_DYNAMIC                                     
+//#ENABLE_TRACE
+
+// _____________________________________________________________________________________________________ F1 Help
+//#HINT                              ""
+//#HELP_PDF_FILE ""
+#Help_Begin
+Use MS Excel to edit. Must be of .csv format.
+
+2 columns 16 rows
+
+NO commas, single quotes, double quotes or carriage returns allowed in the cells.
+
+User must keep data in column A and B rows 1 - 16.
+
+Max of 32 characters per cell.
+
+The parameters of this module are used in creating a file if one does not exist.
+
+#Help_End
+
+// ________________________________________________________________________________________ Simpl Input - Output 
+//Digital_Input   _SKIP_, _SKIP_, _SKIP_                                       ;
+Digital_Input   Read                                                         ;
+Digital_Input   Edit_Save                                                    ;
+Analog_Input    Edit_Row_Index                                               ;
+String_Input    Edit_Cell_A[cMaxChar]                                        ;
+Analog_Input    Edit_Cell_B                                                  ;
+
+Digital_Output  File_Busy_FB                                                 ;
+String_Output   File_Time_Stamp_FB                                           ;
+String_Output   Edit_Selected_Cell_A_FB                                      ;
+Analog_Output   Edit_Selected_Cell_B_FB                                      ;
+String_Output   _SKIP_                                                       ;
+String_Output   Column_A_Row[cMaxRow]                                        ;
+Analog_Output   Column_B_Row[cMaxRow, cMaxRow]                               ;
+
+// __________________________________________________________________________________________________ Parameters
+String_Parameter  PathFileExt[cMaxChar]                                      ;
+#BEGIN_PARAMETER_PROPERTIES PathFileExt
+	propValidUnits       = unitString                                        ;
+	propDefaultUnit      = unitString                                        ;
+	propDefaultValue     = "\\NVRAM\\Data.csv"                               ;
+	propShortDescription = ""                                                ;
+#END_PARAMETER_PROPERTIES
+
+Integer_Parameter  SKIP[4]                                                   ;
+#BEGIN_PARAMETER_PROPERTIES SKIP
+	propValidUnits       = unitDecimal                                       ;
+	propDefaultUnit      = unitDecimal                                       ;
+	propDefaultValue     = 0d                                                ;
+	propShortDescription = "Not Used... In place align params with outputs"  ;
+#END_PARAMETER_PROPERTIES
+
+String_Parameter  Default_Column_A_Row[cMaxRow][cMaxChar]                    ;
+#BEGIN_PARAMETER_PROPERTIES Default_Column_A_Row
+	propValidUnits       = unitString                                        ;
+	propDefaultUnit      = unitString                                        ;
+	propShortDescription = ""                                                ;
+#END_PARAMETER_PROPERTIES
+
+Integer_Parameter  Default_Column_B_Row[cMaxRow, cMaxRow]                    ;
+#BEGIN_PARAMETER_PROPERTIES Default_Column_B_Row
+	propValidUnits       = unitDecimal                                       ;
+	propDefaultUnit      = unitDecimal                                       ;
+	propShortDescription = ""                                                ;
+#END_PARAMETER_PROPERTIES
+
+// _____________________________________________________________________________________________ Global Varibles
+String         g_sCell_A[cMaxRow][cMaxChar]                                  ;
+Integer        g_iCell_B[cMaxRow]                                            ;
+Signed_Integer g_iFind, g_iHandle, g_iBytes                                  ;
+File_Info      FileInfo                                                      ;
+
+// ___________________________________________________________________________________________________ Functions
+Function fParse(String sData)
+{
+	String  sRow[128]                                                        ;
+	Integer i                                                                ;
+	
+	i = 0                                                                    ;	
+	SetArray(Column_A_Row, "")                                               ;
+	
+	While(Find("\n", sData))
+	{
+		i = i + 1                                                            ;
+		sRow = Remove("\n", sData)                                           ;
+		sRow = Left(sRow, Len(sRow) - 2)                                     ;
+		If(Find(",", sRow))
+		{
+			g_sCell_A[i] = Left(sRow, Find(",", sRow) - 1)                   ;
+			g_iCell_B[i] = AtoI(Right(sRow, Len(sRow) - Find(",", sRow)))    ;
+		}
+		Else
+		{
+       		g_sCell_A[i] = sRow                                              ;
+			g_iCell_B[i] = 0                                                 ;
+		}
+		Column_A_Row[i] = g_sCell_A[i]                                       ;
+		Column_B_Row[i] = g_iCell_B[i]                                       ;
+	}	
+}
+
+Function fRead()
+{
+	String sData[cMaxFileSize]                                               ;
+	Integer i                                                                ;
+			
+	StartFileOperations()                                                    ;
+	
+	g_iFind = FindFirst(PathFileExt, FileInfo)                               ;
+	FindClose()                                                              ;
+	
+	If(g_iFind = 0)	
+	{	
+		g_iHandle = FileOpen(PathFileExt , _O_Creat | _O_RDonly | _O_Text)   ;
+		g_iBytes  = FileRead(g_iHandle, sData, FileLength(g_iHandle) )       ;
+		FileClose(g_iHandle)                                                 ;
+		EndFileOperations()                                                  ;					
+	}
+	Else
+	{
+		For(i = 1 To cMaxRow Step 1)
+		{
+			sData = sData + Default_Column_A_Row[i] + ","                    + 
+							ItoA(Default_Column_B_Row[i]) + "\n"             ;
+		}
+		 
+		g_iHandle = FileOpen(PathFileExt , _O_Creat | _O_WRonly | _O_Text)   ;
+		g_iBytes  = FileWrite(g_iHandle, sData, Len(sData) )                 ;
+		FileClose(g_iHandle)                                                 ;
+		EndFileOperations()                                                  ;
+	}
+	If(g_iBytes)
+	{
+		fParse(sData)                                                        ;
+		File_Time_Stamp_FB = FileDate(FileInfo, 1) + "  "                    + 
+							 FileTime(FileInfo)                              ;
+	}
+}
+Function fWrite()
+{
+	String sData[cMaxFileSize]                                               ;
+	Integer i                                                                ;
+	
+	For(i = 1 To cMaxRow Step 1)
+	{		
+		sData = sData + g_sCell_A[i] + ","                                   +
+					    ItoA(g_iCell_B[i]) + "\n"                            ;
+	}
+	
+	StartFileOperations()                                                    ;
+	
+	g_iHandle = FileOpen(PathFileExt , _O_Creat | _O_WRonly | _O_Text)       ;
+	g_iBytes  = FileWrite(g_iHandle, sData, Len(sData) )                     ;
+	FileClose(g_iHandle)                                                     ;
+	
+	EndFileOperations()                                                      ;
+	
+	If(g_iBytes)
+	{
+		fParse(sData)                                                        ;
+		File_Time_Stamp_FB = FileDate(FileInfo, 1) + "  "                    + 
+							 FileTime(FileInfo)                              ;
+	}
+		
+}
+
+// ________________________________________________________________________________________________ Simpl Events
+Push Read
+{ 
+	If(!File_Busy_FB) 
+	{ 
+		File_Busy_FB = On                                                    ;
+		fRead()                                                              ;
+		File_Busy_FB = Off                                                   ; 
+	} 
+}
+Push Edit_Save
+{
+	If(!File_Busy_FB && Edit_Row_Index) 
+	{ 
+		File_Busy_FB = On                                                    ;
+		g_sCell_A[Edit_Row_Index] = Edit_Cell_A                              ;
+		g_iCell_B[Edit_Row_Index] = Edit_Cell_B                              ;
+		fWrite()                                                             ;
+		File_Busy_FB = Off                                                   ; 
+	}	
+}
+Change Edit_Row_Index
+{
+	If(Edit_Row_Index)
+	{
+//		Edit_Cell_A        = g_sCell_A[Edit_Row_Index]                       ;
+//		Edit_Cell_B        = g_iCell_B[Edit_Row_Index]                       ;
+		Edit_Selected_Cell_A_FB = g_sCell_A[Edit_Row_Index]                  ;	
+		Edit_Selected_Cell_B_FB = g_iCell_B[Edit_Row_Index]                  ;
+	}
+}
+
+
+// ________________________________________________________________________________________________ Start Up Code
+Function Main() 
+{
+	
+}

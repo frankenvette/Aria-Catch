@@ -1,0 +1,170 @@
+/* GreenPoint TDI 
+
+Development Notes _________________________________________________________________________ Development Notes /*
+Socket_Busy_FB is not implemented
+
+v0.4  Changed Local_Channel_Filter size and event handler 
+
+v0.3  Added bug fixes for local channel filtering
+
+v0.2  Added auto initialize on a subscribe.
+
+v0.1  Added Local_Channel_Filter
+		Updated Help
+		changed Ip and TCPListenPort FB to delegates
+		
+v0.0  Initialize, Subscribe, Unsubscribe and parsing of content.
+		 
+
+#If_Defined cDebug
+#EndIf
+
+Development Notes _________________________________________________________________________ Development Notes */
+
+// ________________________________________________________________________________ Module Compile Time Behavior
+//#Define_Constant cDebug            1
+
+//#Enable_Dynamic                                     
+//#Enable_Trace
+#ENABLE_STACK_CHECKING
+#DEFAULT_VOLATILE                      
+#Category                          "46" "MediaTune"
+#Output_Shift                      2
+//#Analog_Serial_Expand              OutputsWithParams
+
+// ___________________________________________________________________________________________________ Constants
+//#Define_Constant cMax              100
+//#Define_Constant cMaxChar          32
+
+// ___________________________________________________________________________________________________ Libraries
+#IncludePath "..\\..\\mediaTune\\mediaTune\\bin"
+#USER_SIMPLSHARP_LIBRARY "mediaTune"
+
+// _____________________________________________________________________________________________________ F1 Help
+//#HINT                              ""
+//#HELP_PDF_FILE ""
+#Help_Begin
+GreenPoint TDI   www.greenpointtdi.com
+
+Digital_Input Initialize
+Instantiates variables, subscribe events and starts to listen for content.
+A successfull initialize only means it is ready to communicate with a subscribe or unsubscribe call.
+
+Digital_Input Subscribe
+Programed with a change event. Rising edge will subscribe. Falling edge unsubscribes.
+
+String_Input IP
+Ip address for the ComX000 card that the mediaTune licensed software was installed on.
+Overwrites Ip provided by parameter "Default_Ip".
+
+Analog_Input Listen_Port
+TCP Port number that will be used to listen for content changes.
+Choose a port in the range of 60002 ~ 60999
+* The port number must be unique per module instance in a program and entire processor, thus account for any other program slots
+
+
+
+Digital_Output Socket_Busy_FB
+Digital_Output Subscribe_FB
+Analog_Output  Initialize_FB
+String_OUtput  Message_FB
+String_Output  Ip_FB
+Analog_Output  Listen_Port_FB
+Analog_Output  Channel_Count_FB
+
+
+
+
+Parameter Default_Ip
+Ip address for the ComX000 card that the mediaTune licensed software was installed on.
+Used at program start.
+
+Parameter Default_Listen_Port
+TCP Port number that will be used to listen for content changes.
+Choose a port in the range of 60002 ~ 60999.
+* The port number must be unique per module instance in a program and entire processor, thus account for any other program slots.
+
+
+#Help_End
+// ________________________________________________________________________________________ Simpl Input - Output 
+Digital_Input _SKIP_, _SKIP_                                    ;
+//Digital_Input  Subscribe                                        ;
+Digital_Input  Initialize                                       ;
+Analog_Input   Subscribe                                        ;
+String_Input   Ip[16]                                           ;
+Analog_Input   Listen_Port                                      ;
+Analog_Input   _SKIP_,_SKIP_;
+String_Input   _SKIP_,_SKIP_;
+Buffer_Input   Local_Channel_Filter[4096]                       ;
+
+
+Digital_Output Socket_Busy_FB                                   ;
+Digital_Output Subscribe_FB                                     ;
+Analog_Output  Initialize_FB                                    ;
+String_OUtput  Message_FB                                       ;
+String_Output  Ip_FB                                            ;
+Analog_Output  Listen_Port_FB                                   ;
+Analog_Output  Channel_Count_FB                                 ;
+Analog_Output  _SKIP_                                           ;
+Analog_Output  Channel_Count_Local_Filter_FB                    ;
+
+// __________________________________________________________________________________________________ Parameters
+String_Parameter  Default_Ip[64]                                ;
+#BEGIN_PARAMETER_PROPERTIES Default_Ip
+	propValidUnits       = unitString                           ;
+	propDefaultUnit      = unitString                           ;
+	propDefaultValue     = "10.84.36.65"                        ;
+	propShortDescription = ""                                   ;
+#END_PARAMETER_PROPERTIES
+
+Integer_Parameter  Default_Listen_Port                          ;
+#BEGIN_PARAMETER_PROPERTIES Default_Listen_Port
+	propValidUnits       = unitDecimal                          ;
+	propDefaultUnit      = unitDecimal                          ;
+	propDefaultValue     = 60002d                               ;
+	propShortDescription = "Port to Receive Calls on. 60000~60999, Must be Unique across entire processor." ;
+#END_PARAMETER_PROPERTIES
+
+// _____________________________________________________________________________________________ Global Varibles
+
+// ___________________________________________________________________________________________________ Functions
+
+// ________________________________________________________________________________________________ Sharp Events
+EventHandler eMessage(MessageEventArgs e) { Message_FB = e.Message ;} 
+//EventHandler eSocket_Busy(SocketEventArgs e) { Socket_Busy_FB = e.Socket_Busy ;}
+EventHandler eInitialize_Value(InitializeEventArgs e) { Initialize_FB = e.Initialize_Value_FB ;}
+EventHandler eChannel_Count(ChannelCountEventArgs e) { Channel_Count_FB = e.Channel_Count ;}
+EventHandler eSubscriptionFB(SubscriptionFB_EventArgs e) { Subscribe_FB = e.SubscriptionFB ;} 
+
+Callback Function cbf_Ip_FB(String v) { Ip_FB = v ;}
+Callback Function cbf_Listen_Port_FB(Integer v) { Listen_Port_FB = v ;}
+Callback Function cbf_Channel_Count_Local_Filter_FB(Integer v) { Channel_Count_Local_Filter_FB = v ;}
+
+// ________________________________________________________________________________________________ Simpl Events
+Push Initialize { RemoteCore.initialize(); }
+Change Subscribe { RemoteCore.subscription(Subscribe); }
+Change Ip { RemoteCore.ipAdr = Ip ; }
+Change Listen_Port { RemoteCore.TCPServerPort = Listen_Port ; }
+Change Local_Channel_Filter
+{
+	If(Find("\x03", Local_Channel_Filter))
+	{
+		RemoteCore.localChannelFilter = Remove("\x03", Local_Channel_Filter) ;
+	}
+}
+// ________________________________________________________________________________________________ Start Up Code
+Function Main() 
+{			
+	RegisterEvent(Message, onMessage_Change, eMessage) ;
+	//RegisterEvent(SocketBusy, onSocket_Busy_Change, eSocket_Busy) ;
+	RegisterEvent(ChannelCount_Remote, onChannelCount_Remote_Change, eChannel_Count) ;
+	RegisterEvent(EventInitialize, onInitialize_Value_Change, eInitialize_Value) ;
+	RegisterEvent(SubscriptionFB_Remote, onSubscription_FB_Change, eSubscriptionFB) ;
+	
+	RegisterDelegate(RemoteCore, ipAdrChange, cbf_Ip_FB);
+	RegisterDelegate(RemoteCore, TCPServerPortChange, cbf_Listen_Port_FB);
+	RegisterDelegate(RemoteCore, localChannelFilterCountChange, cbf_Channel_Count_Local_Filter_FB);
+	
+	RemoteCore.ipAdr = Default_Ip ;
+	RemoteCore.TCPServerPort = Default_Listen_Port ;
+}

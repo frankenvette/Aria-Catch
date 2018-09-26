@@ -1,0 +1,9 @@
+<?xml version="1.0"?>
+<HTMLConfig>
+<obj>
+	<Font FS="20" FF="Arial" FC="#ffffff" SP="<B>"/>
+	<CIPS T="S" SJ="1601" DT="" AT=""/>
+	<Format FT="<BR>"/>
+	<Tabstop FTS="" type="0"/>
+</obj>
+</HTMLConfig>

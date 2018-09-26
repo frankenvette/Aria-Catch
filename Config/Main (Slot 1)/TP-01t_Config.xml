@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<!--
+	Area attributes: 
+		(t)ype:  1- List		2- Floorplan
+		(v)ideo: number of areas
+		(a)udio: number of areas
+	Menu types: (icons are Media Transports/LG Icons(MGM2.2))
+		1- Audio(1/31) 2- Video(83/5) 3- Device(102/54) 4- lights(17/15) 5- VW(39/102) 6- Mixer(6/191) 7- shades(79/24) 8- presets(56/32) 9- tech(55/35) 
+	--> 
+<ProgConfig>
+	<obj>
+		<Label l="TP-01t - Xpanel" />
+		<Area l="Global" t="2" v="18" a="6" />
+		<Menu items="4" />   
+		<Att pos="1" 	type="1" 	icon="125"		label="Audio" 		zones="8"	zOrder="1,2,3,4,5,6,7,8"	sources="14"		sOrder="1,2,3,4,5,6,7,8,9,10,11,12,13,14" 		default=""/>
+		<Att pos="2" 	type="2" 	icon="216"		label="Video" 		zones="6"	zOrder="1,2,3,4,5,6"		sources=""	 		sOrder="" 										default=""/>
+		<Att pos="3" 	type="4" 	icon="95"		label="Lighting"	zones="7"	zOrder="1,2,3,4,5,6,7"		sources="5"		 	sOrder="1,2,3,4,5"								default=""/>
+		<Att pos="4" 	type="9" 	icon="69"		label="Tech" 		zones=""	zOrder=""					sources=""		 	sOrder="" 										default=""/>
+	</obj>
+</ProgConfig>

@@ -1,0 +1,678 @@
+/* GreenPoint TDI 
+
+Development Notes _________________________________________________________________________ Development Notes /*
+v0.2  :	Added Save to All feature
+		Found and fixed the level bug - 5 hours of determination/frustration ahhhggg.  
+		Changed pin integers to Long_Integer to handle pins decimally larger than 65535.
+v0.1  : Released in Belterra
+
+
+<?xml version="1.0" ?>
+<root>
+	<tp i="1">
+		<enable>0</enable>
+		<pin lev="1">10001</pin>
+		<pin lev="2">10002</pin>
+		<pin lev="3">10003</pin>
+		<pin lev="1">10004</pin>
+		<pin lev="2">10005</pin>
+		<pin lev="3">10006</pin>
+		<pin lev="1">10007</pin>
+		<pin lev="2">10008</pin>
+		<pin lev="3">10009</pin>
+	</tp>
+	<tp i="2">
+		<enable>0</enable>
+		<pin lev="1">20001</pin>
+		<pin lev="2">20002</pin>
+		<pin lev="3">20003</pin>
+		<pin lev="1">20004</pin>
+		<pin lev="2">20005</pin>
+		<pin lev="3">20006</pin>
+		<pin lev="1">20007</pin>
+		<pin lev="2">20008</pin>
+		<pin lev="3">20009</pin>
+	</tp>
+</root>
+
+
+#If_Defined cDebug
+#EndIf
+
+Development Notes _________________________________________________________________________ Development Notes */
+
+// ________________________________________________________________________________ Module Compile Time Behavior
+#Define_Constant cDebug            1
+#Enable_Dynamic                                     
+//#Enable_Trace
+#ENABLE_STACK_CHECKING
+#DEFAULT_VOLATILE                      
+#Category                          "21"  
+#Output_Shift                      2
+//#Analog_Serial_Expand              OutputsWithParams
+
+// ___________________________________________________________________________________________________ Constants
+#Define_Constant cPinSize            5
+#Define_Constant cMaxFileSize        32768
+#Define_Constant cMaxTpDataSize      512
+#Define_Constant cMaxTps             25
+#Define_Constant cMaxPins            3
+#Define_Constant cMaxPinLevel        3
+#Define_Constant cDelim              "</tp>"
+#Define_Constant cPinCloseTag        "</pin>"
+
+// _____________________________________________________________________________________________________ F1 Help
+//#HINT                              ""
+//#HELP_PDF_FILE ""
+#Help_Begin
+
+#Help_End
+// ________________________________________________________________________________________ Simpl Input - Output 
+Digital_Input  _SKIP_, Refresh                     ;
+Digital_Input  Read                                ;
+Digital_Input  Edit_Save                           ;
+Digital_Input  Edit_Save_To_All                    ;
+Digital_Input  Edit_Cancel                         ;
+Analog_Input   Edit_Touch_Panel_Index              ;
+Analog_Input   Edit_Touch_Panel_Security           ;
+Analog_Input   Edit_Pin_Index                      ;
+String_Input   Edit_Pin_Pin[12]                    ;
+Analog_Input   Edit_Pin_Level                      ;
+String_Input   PathFileExt[64]                     ;
+
+Digital_Output File_Ops_FB                             ;
+Digital_Output Save_Done_Pulse_FB                      ;
+Digital_Output Edit_Security_Different_Than_File_FB    ;
+Digital_Output Edit_Pin_Different_Than_File_FB         ;
+Digital_Output Edit_Level_Different_Than_File_FB       ;
+Analog_Output  Edit_Touch_Panel_Index_FB               ;
+Analog_Output  Edit_Touch_Panel_Selected_Security_FB        ;
+Analog_Output  Edit_Pin_Index_FB                            ;
+String_Output  Edit_Pin_Selected_Pin_FB                     ;
+Analog_Output  Edit_Pin_Selected_Level_FB                   ;
+
+String_Output  Message_FB                                       ;
+String_Output  Touch_Panel_Pin_FB[cMaxPins]                     ;
+Analog_Output  Touch_Panel_Pin_Level_FB[cMaxPins, cMaxPins]     ;
+String_Output  Touch_Panel_Export[cMaxTps, cMaxTps]             ;
+
+// __________________________________________________________________________________________________ Parameters
+String_Parameter File_Name[64]                       ;
+#Begin_Parameter_Properties File_Name
+	propValidUnits = unitString                      ;
+	propDefaultValue = "\\NVRAM\\touchPanelPins.xml" ;
+#End_Parameter_Properties
+
+// __________________________________________________________________________________________________ Structures
+Structure structurePin
+{
+	Integer iEnable               ;
+	Long_Integer liPin[cMaxPins]  ;
+	Integer iLevel[cMaxPins]      ;
+}                                 ;
+
+Dynamic structurePin g_structPin_Config[cMaxTps]     ;
+
+// _____________________________________________________________________________________________ Global Varibles
+String              g_sPathFileExt[64]                                       ;
+Signed_Integer      g_siFind, g_siHandle                                     ;
+Signed_Long_Integer g_sliBytes                                               ;
+File_Info           g_FileInfo                                               ;
+String              g_sFileContents[32768]                                   ;
+Integer             g_iEdit_Different_Than_File                              ;
+Integer             g_iEdit_Pin_Different;
+
+// ___________________________________________________________________________________________________ Functions
+String_Function fXML_PCDATA(String Data, String Tag)
+{
+	String  sStart[24], sEnd[25]                                ;
+	String  sReturn[255]                                        ;
+	Integer iStart,     iEnd                                    ;
+	 	
+	If(Find(Tag, Data))		
+	{		
+		sStart = "<"  + Tag                                     ;
+		sEnd   = "</" + Tag + ">"                               ; 
+		
+		iStart = Find(sStart, Data)                             ;
+		If(iStart)
+		{
+			iStart = Find(">", Data, iStart) + 1                ;
+			If(iStart)
+			{
+				iEnd   = Find(sEnd, Data)                       ;
+				If(iEnd)
+				{		
+					sReturn = Mid(Data, iStart, iEnd - iStart)  ;
+	            	Return(sReturn)                             ;
+	            }
+			}
+		}		           
+	}
+	Return("")                                                  ;
+}
+
+String_Function fXML_Attribute(String Data, String Tag, String Attribute)
+{
+	Integer iStart, iCount                                              ;
+    String  sReturn[255]                                                ;
+    String  sAttribute[64]                                              ;
+	String  sTag[64]                                                    ;
+	
+	sTag = "<" + Tag                                                    ;
+	
+	If(Find(sTag, Data))                                          
+	{                                                            
+		iStart = Find(sTag, Data) + Len(sTag)                           ;
+		sAttribute = Attribute + "=\x22"                                ; 
+		
+		If(Find(sAttribute, Data, iStart))
+		{ 
+			iStart  = Find(sAttribute, Data, iStart) + Len(sAttribute)  ;
+			iCount  = Find("\x22", Data, iStart)                        ;
+			iCount  = iCount - iStart                                   ;
+			sReturn = Mid(Data, iStart, iCount)                         ;
+			
+			Return(sReturn)                                             ;
+		}                                             
+		Return("")                                                      ;
+	}
+	Return("")                                                          ;
+}
+Function fEdit_Outputs_Clear()
+{
+	Edit_Touch_Panel_Selected_Security_FB = 65535 ;
+	SetArray(Touch_Panel_Pin_FB, "")  ;
+	SetArray(Touch_Panel_Pin_Level_FB, 65535) ;
+	
+	Edit_Pin_Selected_Pin_FB = "" ;
+	Edit_Pin_Selected_Level_FB = 65535 ;
+}
+Function fUpdate_Edit_Outputs()
+{
+	Integer i ;
+		
+	If(Edit_Touch_Panel_Index_FB)
+	{
+		If(Edit_Touch_Panel_Index_FB <= cMaxTps)
+		{
+			//Edit_Touch_Panel_Selected_Security_FB = Off;
+			Edit_Touch_Panel_Selected_Security_FB = g_structPin_Config[Edit_Touch_Panel_Index_FB].iEnable ;
+			
+			For(i = 1 To cMaxPins Step 1)
+			{
+				MakeString(Touch_Panel_Pin_FB[i], "%05lu", g_structPin_Config[Edit_Touch_Panel_Index_FB].liPin[i]) ;
+				Touch_Panel_Pin_Level_FB[i] = g_structPin_Config[Edit_Touch_Panel_Index_FB].iLevel[i];
+			}
+			If(Edit_Touch_Panel_Selected_Security_FB)
+			{
+				If(Edit_Pin_Index_FB)
+				{
+					If(Edit_Pin_Index <= cMaxPins)
+					{
+						MakeString(Edit_Pin_Selected_Pin_FB, "%05lu", g_structPin_Config[Edit_Touch_Panel_Index_FB].liPin[Edit_Pin_Index_FB]) ;
+						Edit_Pin_Selected_Level_FB = g_structPin_Config[Edit_Touch_Panel_Index_FB].iLevel[Edit_Pin_Index_FB] ;
+					}
+				}
+			}
+		}
+	}
+}
+
+Function fParse_Export(Integer iExport)
+{
+	Integer iIndex, iPinCount         ;
+	String  sData[32768]              ;
+	String  sTp[cMaxTpDataSize]       ;
+	String  sPin[255]                 ;
+	
+	sData = g_sFileContents ;
+	sTp = Remove("<root>", sData) ; // Trash contents up to and including opening root tag
+	While(Find("</tp>", sData))
+	{
+		sTp = Remove("</tp>", sData) ;
+		iIndex = AtoI(fXML_Attribute(sTp, "tp", "i")) ;
+		If(iIndex)
+		{
+			If(iIndex <= cMaxTps)
+			{
+				g_structPin_Config[iIndex].iEnable = AtoI(fXML_PCData(sTp, "enable")) ;
+				iPinCount = 0 ;
+				While(Find("</pin>", sTp))
+				{
+					iPinCount = iPinCount + 1          ;
+					sPin = Remove("</pin>", sTp)       ;
+					
+					If(iExport)
+					{ 
+						Touch_Panel_Export[iIndex] = sPin  ;
+					}
+					g_structPin_Config[iIndex].iLevel[iPinCount]  = AtoI(fXML_Attribute(sPin, "pin", "lev")) ;
+					g_structPin_Config[iIndex].liPin[iPinCount]   = AtoL(fXML_PCData(sPin, "pin")) ;
+				}
+				If(iExport)
+				{
+					Touch_Panel_Export[iIndex] = sTp ;
+					ProcessLogic() ;
+				}
+			}
+			Else
+			{
+			
+			}
+		}
+		Else
+		{
+		
+		}
+	}
+	fUpdate_Edit_Outputs() ;
+}
+
+Function fRead(Integer iExport)
+{
+	Integer i                                                                          ;
+			
+	StartFileOperations()                                                              ;
+	
+	g_siFind = FindFirst(g_sPathFileExt, g_FileInfo)                                   ;
+	FindClose()                                                                        ;
+	
+	If(g_siFind = 0)	
+	{	
+		g_siHandle = FileOpen(g_sPathFileExt , _O_RDonly | _O_Text)                    ;
+		
+		If(g_siHandle >= 0)
+		{
+			g_sliBytes = FileRead(g_siHandle, g_sFileContents, FileLength(g_siHandle)) ;
+		}
+		Else
+		{
+			g_sliBytes = g_siHandle			                                           ;
+			MakeString(Message_FB, "Error Read Open Err: %ld.", g_sliBytes)             ;
+			If(g_sliBytes = -3018)
+				MakeString(Message_FB, "Error Read Open Loc: %s.", g_sPathFileExt)      ;
+		}
+		FileClose(g_siHandle)                                                          ;
+		EndFileOperations()                                                            ;
+		
+		If(g_sliBytes)
+		{
+			fParse_Export(iExport)                                                     ;			
+			Edit_Security_Different_Than_File_FB = Off      ;
+			Edit_Pin_Different_Than_File_FB      = Off      ;
+			Edit_Level_Different_Than_File_FB    = Off      ;
+			Message_FB = FileDate(g_FileInfo, 1) + "  "                                + 
+								 FileTime(g_FileInfo)                                  ;
+		}
+		Else
+		{
+			MakeString(Message_FB, "Error Read: %ld.", g_sliBytes)                      ;
+		}
+	}
+	Else
+	{
+		EndFileOperations()                                                            ;
+		//fWrite(1)                                                                      ;
+		MakeString(Message_FB, "File Not Found: %s.", g_sPathFileExt)                   ;
+	}
+}
+
+Function fWrite()
+{
+	Integer iTpIndex, iPinIndex ;
+    
+	g_sFileContents = "<?xml version=\x221.0\x22 ?>\r<root>\r" ;
+	
+	For(iTpIndex = 1 To cMaxTps Step 1)
+	{
+		g_sFileContents = g_sFileContents + "\t<tp i=\x22" + ItoA(iTpIndex) + "\x22>\r\t" ;
+		g_sFileContents = g_sFileContents + "\t<enable>" + ItoA(g_structPin_Config[iTpIndex].iEnable) + "</enable>\r\t" ;
+		
+		For(iPinIndex = 1 To cMaxPins Step 1)
+		{			
+			MakeString(g_sFileContents, "%s\t<pin lev=\x22%u\x22>%05lu</pin>\r\t", g_sFileContents, g_structPin_Config[iTpIndex].iLevel[iPinIndex], g_structPin_Config[iTpIndex].liPin[iPinIndex]);
+		}
+		g_sFileContents = g_sFileContents + "</tp>\r" ; 
+	}
+	g_sFileContents = g_sFileContents + "</root>" ;
+	
+	StartFileOperations()                                                              ;
+	g_siHandle = FileOpen(g_sPathFileExt , _O_Creat | _O_WRonly | _O_Trunc | _O_Text)  ;
+		
+	If(g_siHandle >= 0)
+	{
+		g_sliBytes = FileWrite(g_siHandle, g_sFileContents, Len(g_sFileContents))      ;
+	}
+	Else
+	{
+		g_sliBytes = g_siHandle			                                               ;
+	}
+	FileClose(g_siHandle)                                                              ;
+	EndFileOperations()                                                                ;
+	
+	
+	If(g_sliBytes < 0)
+	{	
+		If(g_sliBytes = -3018)
+		{
+			MakeString(Message_FB, "Error Write Err Loc: %s.", g_sPathFileExt)          ;
+		}
+		Else
+		{
+			MakeString(Message_FB, "Error Write Err: %ld.", g_sliBytes)                 ;
+		}
+	}
+	Else
+	{
+		Pulse(1, Save_Done_Pulse_FB) ;
+	}
+}                                                                                
+
+Integer_Function fCheck_Edit_Parameters()
+{
+	If(!File_Ops_FB)
+	{
+		If(Edit_Touch_Panel_Index_FB)
+		{
+			If(Edit_Touch_Panel_Index_FB <= cMaxTps)
+			{
+				If(Edit_Pin_Index)
+				{
+					If(Edit_Pin_Index <= cMaxPins)
+					{
+						Return(1) ;
+					}
+					Else
+					{
+						MakeString(Message_FB, "Edit Pin Index %u out of range, max index=%u.", Edit_Pin_Index, cMaxPins);
+					}
+				}
+				Else
+				{
+					MakeString(Message_FB, "Edit Pin Index Zero not valid.");
+				}
+			}
+			Else
+			{
+				MakeString(Message_FB, "Edit Touchpanel Index %u out of range, max index=%u.", Edit_Touch_Panel_Index, cMaxTps);
+			}
+		}
+		Else
+		{
+			MakeString(Message_FB, "Edit Touchpanel Index Zero not valid.");
+		}
+	}
+	Else
+	{
+		MakeString(Message_FB, "Edit Parameter event ignored, File Ops are busy.");
+	}
+	Return(0) ;
+}
+
+// ________________________________________________________________________________________________ Simpl Events
+Push Read, Refresh
+{
+	If(!File_Ops_FB)
+	{
+		File_Ops_FB = On ;
+		fRead(1) ;
+		File_Ops_FB = Off ;
+	}
+	Else
+	{
+		MakeString(Message_FB, "Read File ignored, File Ops busy.");
+	}
+}
+
+Change Edit_Touch_Panel_Index
+{
+	Integer i ;
+	
+	If(!File_Ops_FB)
+	{
+		If(Edit_Touch_Panel_Index <= cMaxTps)
+		{
+			If(Edit_Touch_Panel_Index)
+			{
+				If(Edit_Security_Different_Than_File_FB || Edit_Pin_Different_Than_File_FB || Edit_Level_Different_Than_File_FB)
+				{
+					File_Ops_FB = On ;
+					fRead(0) ;
+					File_Ops_FB = Off ;
+				}
+				//Edit_Pin_Index_FB = 0 ;
+				//Edit_Pin_Selected_Pin_FB = "" ;
+				//Edit_Pin_Selected_Level_FB = 65535 ;
+				Edit_Touch_Panel_Index_FB = Edit_Touch_Panel_Index ;
+				fUpdate_Edit_Outputs() ;				
+			}
+			Else
+			{
+				fEdit_Outputs_Clear() ;
+			}
+		}
+		Else
+		{
+			MakeString(Message_FB, "Edit Touchpanel Index %u out of range, max index=%u.", Edit_Touch_Panel_Index, cMaxTps);
+		}
+	}
+	Else
+	{
+		MakeString(Message_FB, "Edit Touchpanel Index change event ignored, File Ops busy.");
+	}
+}
+
+Change Edit_Pin_Index
+{
+	If(fCheck_Edit_Parameters())
+	{
+		Edit_Pin_Index_FB = Edit_Pin_Index ;
+		MakeString(Edit_Pin_Selected_Pin_FB, "%05lu", g_structPin_Config[Edit_Touch_Panel_Index_FB].liPin[Edit_Pin_Index_FB]) ;
+		Edit_Pin_Selected_Level_FB = g_structPin_Config[Edit_Touch_Panel_Index_FB].iLevel[Edit_Pin_Index_FB] ;
+	}
+}
+
+Change Edit_Touch_Panel_Security
+{
+	If(!File_Ops_FB)
+	{
+		If(Edit_Touch_Panel_Index_FB)
+		{
+			If(Edit_Touch_Panel_Index_FB <= cMaxTps)
+			{			 	
+			 	If(Edit_Touch_Panel_Security = 0)
+			 	{
+			 		Edit_Touch_Panel_Selected_Security_FB = 0 ;
+			 		Edit_Pin_Selected_Pin_FB = "" ;
+					Edit_Pin_Selected_Level_FB = 65535 ;				 	
+				}
+				Else 
+			 	{
+			 		Edit_Touch_Panel_Selected_Security_FB = 1 ;			 		
+			 		
+			 		If(fCheck_Edit_Parameters())
+			 		{
+				 		MakeString(Edit_Pin_Selected_Pin_FB, "%05lu", g_structPin_Config[Edit_Touch_Panel_Index_FB].liPin[Edit_Pin_Index_FB]) ;
+						Edit_Pin_Selected_Level_FB = g_structPin_Config[Edit_Touch_Panel_Index_FB].iLevel[Edit_Pin_Index_FB] ;
+					}
+			 	}
+			 	If(Edit_Touch_Panel_Security != g_structPin_Config[Edit_Touch_Panel_Index_FB].iEnable)
+			 	{
+			 		Edit_Security_Different_Than_File_FB = On ;
+			 	}
+			 	Else
+			 	{
+			 		Edit_Security_Different_Than_File_FB = Off ;
+			 	}
+			 	
+			}
+		}
+	}	
+}
+
+Change Edit_Pin_Pin
+{
+	If(Len(Edit_Pin_Pin) = cPinSize)
+	{
+		If(fCheck_Edit_Parameters())
+		{		
+			If(AtoL(Edit_Pin_Pin) != g_structPin_Config[Edit_Touch_Panel_Index_FB].liPin[Edit_Pin_Index_FB])
+			{
+				Edit_Pin_Different_Than_File_FB = On ;
+			}
+			Else
+			{
+				Edit_Pin_Different_Than_File_FB = Off ;
+			}
+		}
+		Else
+		{
+			MakeString(Message_FB, "Edit Pin Pin change event ignored. Parameters.");
+		}
+	}
+	Else
+	{
+		MakeString(Message_FB, "Edit Pin Pin change event ignored. Length.");
+		Edit_Pin_Different_Than_File_FB = Off ;
+	}
+}
+
+Change Edit_Pin_Level
+{
+	If(Edit_Pin_Level)
+	{
+		If(fCheck_Edit_Parameters())
+		{
+			If(Edit_Pin_Level <= cMaxPinLevel)
+			{
+				If(Edit_Pin_Level != g_structPin_Config[Edit_Touch_Panel_Index_FB].iLevel[Edit_Pin_Index_FB])
+				{
+					Edit_Level_Different_Than_File_FB = On ;
+				}
+				Else
+				{
+					Edit_Level_Different_Than_File_FB = Off ;
+				}
+			}
+			Else
+			{
+				Edit_Level_Different_Than_File_FB = Off ;
+				MakeString(Message_FB, "Edit Pin Level %u out of range, Level range 1~%u.", Edit_Pin_Level, cMaxPinLevel);
+			}
+		}
+		Else
+		{
+			MakeString(Message_FB, "Edit Pin Level change ignored. Parameters.");
+		}		
+	}
+	Else
+	{
+		Edit_Level_Different_Than_File_FB = Off ;
+		MakeString(Message_FB, "Edit Pin Level %u out of range, Level range 1~%u.", Edit_Pin_Level, cMaxPinLevel);
+	}
+}
+
+Push Edit_Save, Edit_Save_To_All
+{
+	Integer iSave ;
+	
+	If(fCheck_Edit_Parameters())
+	{  
+		iSave = 0 ;
+		If(Edit_Security_Different_Than_File_FB)
+		{
+			If(Edit_Save_To_All)
+			{
+				For(iSave = 1 To cMaxTps Step 1)
+				{
+					g_structPin_Config[iSave].iEnable = Edit_Touch_Panel_Security ;
+				}
+			}
+			Else
+			{
+				g_structPin_Config[Edit_Touch_Panel_Index_FB].iEnable = Edit_Touch_Panel_Security ;				
+			}
+			iSave = 1 ;
+		}
+	    If(Edit_Pin_Different_Than_File_FB)
+		{
+			If(Edit_Save_To_All)
+			{
+				For(iSave = 1 To cMaxTps Step 1)
+				{
+					g_structPin_Config[iSave].liPin[Edit_Pin_Index_FB] = AtoL(Edit_Pin_Pin) ;
+				}
+			}
+			Else
+			{
+				g_structPin_Config[Edit_Touch_Panel_Index_FB].liPin[Edit_Pin_Index_FB] = AtoL(Edit_Pin_Pin) ;
+			}
+			iSave = 1;
+	    }
+	    If(Edit_Level_Different_Than_File_FB)
+		{
+			If(Edit_Save_To_All)
+			{
+				For(iSave = 1 To cMaxTps Step 1)
+				{
+			    	g_structPin_Config[iSave].iLevel[Edit_Pin_Index_FB] = Edit_Pin_Level ;
+			    }
+			}
+			Else
+			{
+				g_structPin_Config[Edit_Touch_Panel_Index_FB].iLevel[Edit_Pin_Index_FB] = Edit_Pin_Level ;
+			}
+			iSave = 1 ;
+		}
+	    If(iSave)
+	    {			
+			File_Ops_FB = On ;
+			fWrite() ;
+			fRead(1) ;		
+			File_Ops_FB = Off ;
+		}
+		Else
+		{
+			MakeString(Message_FB, "Edit Save event ignored. Nothing new to save.");
+		}		
+	}
+	Else
+	{
+		MakeString(Message_FB, "Edit Save event ignored. Parameters.");
+	}
+	
+}
+
+Push Edit_Cancel
+{
+	If(!File_Ops_FB)
+	{
+		File_Ops_FB = On ;
+		fRead(0) ;
+		fUpdate_Edit_Outputs() ;
+		File_Ops_FB = Off ;
+	}
+	Else
+	{
+		MakeString(Message_FB, "Edit Cancel event ignored, File Ops busy.");
+	}	
+} 
+
+Change PathFileExt
+{
+	If(Len(PathFileExt))
+	{
+		g_sPathFileExt = PathFileExt ;
+	}	
+}
+
+// ________________________________________________________________________________________________ Start Up Code
+Function Main() 
+{
+//	Integer i                                                                      ;
+//	WaitForInitializationComplete()                                                ;
+	g_sPathFileExt = File_Name ;
+	Edit_Pin_Index_FB = 1 ;
+	Edit_Touch_Panel_Index_FB = 1 ;
+}

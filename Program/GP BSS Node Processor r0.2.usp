@@ -1,0 +1,213 @@
+/* GreenPoint TDI 
+
+Development Notes _________________________________________________________________________ Development Notes /*
+#SYMBOL_NAME "BSS Audio Soundweb London Node v4.0"
+Dealer Name:	Crestron Electronics
+System Name:
+System Number:
+Programmer:		PAC
+Comments:
+
+v0.2  : Added Threadsafe and while(1) gather construct in RX$ change event. 
+v0.1  : Added detection for "Logic" processing block
+
+v0.0  : Added Node_ID_FB and global varible g_sNode_ID
+		Start of formatting module as GreenPoint TDI
+		
+
+Development Notes _________________________________________________________________________ Development Notes */
+
+// ________________________________________________________________________________ Module Compile Time Behavior
+//#DEFINE_CONSTANT cDebug  1
+#OUTPUT_SHIFT           1
+#CATEGORY               "34" 
+#DEFAULT_VOLATILE
+#ENABLE_STACK_CHECKING
+
+#If_Defined cDebug
+#Enable_Trace
+#EndIf
+
+// ___________________________________________________________________________________________________ Constants
+// _____________________________________________________________________________________________________ F1 Help
+//#HINT                              ""
+//#HELP_PDF_FILE ""
+
+#HELP_BEGIN
+GreenPoint TDI   www.greenpointtdi.com
+
+#HELP_END
+
+// ________________________________________________________________________________________ Simpl Input - Output
+Digital_Input _SKIP_                              ;
+BUFFER_INPUT RX$[2048]                            ;
+STRING_INPUT Node_ID[2]                           ;
+BUFFER_INPUT modulesTx$[2048]                     ;
+
+STRING_OUTPUT TX$           ;
+String_Output Node_ID_FB    ;
+STRING_OUTPUT modulesRx$    ;
+    
+
+// _____________________________________________________________________________________________ Global Varibles
+INTEGER  xOK1;
+STRING   tempString1[80]; 
+INTEGER  checksum;
+Integer  i;
+STRING   sendString[80];
+INTEGER  xOK2;
+STRING   tempString2[80];
+STRING   tempString3[80];
+INTEGER  j;
+STRING   receiveString[80];
+INTEGER  marker1 ;
+Integer  marker2 ;
+
+String g_sNode_ID[2]         ;
+
+// __________________________________________________________________________________________________ Parameters
+String_Parameter Default_Node_ID[3]                                                               ;
+#BEGIN_PARAMETER_PROPERTIES Default_Node_ID
+	propValidUnits       = unitString                                                             ;
+	propDefaultUnit      = unitString                                                             ;
+	propDefaultValue     = "\x10\x01"                                                             ;
+	propShortDescription = "2 Hex Characters retrieved from the .architect file"                  ;
+#END_PARAMETER_PROPERTIES
+
+// ___________________________________________________________________________________________________ Functions
+Function send(STRING str1)
+{        
+	Integer iLogic ;
+	checksum = 0;
+	sendString = "";
+	
+	
+	iLogic = 0 ;
+	If(Byte(str1, 1) = 255)
+	{
+		iLogic = GetC(str1) ;		
+	}
+	
+	for (i = 1 to len(str1))                                                               
+	{             
+		checksum = checksum ^ byte(str1, i);
+		if (byte(str1, i) = 2 || byte(str1, i) = 3 || byte(str1, i) = 6 || byte(str1, i) = 21 || byte(str1, i) = 27)
+		{     
+			makeString(sendString, "%s\x1B%s", sendString, chr(byte(str1, i) + 128));
+		}               
+		else
+		{
+			makeString(sendString, "%s%s", sendString, chr(byte(str1, i)));
+		}
+	}                  
+	if (checksum = 2 || checksum = 3 || checksum = 6 || checksum = 21 || checksum = 27)
+	{
+		makeString(TX$, "\x02%s\x1B%s\x03", sendString, chr(checksum+128));
+	}
+	else
+	{                                      
+		makeString(TX$, "\x02%s%s\x03", sendString, chr(checksum));
+	}                                      
+}
+
+String_Function receive(STRING str2)
+{           
+//	\x02\x88\xD2\x1B\x95\x1B\x83\x00\x01\x4E\x00\x01\x00\x00\x00\x01\x1B\x83\x03
+	receiveString = "";
+	for (j = 1 to len(str2))
+	{
+		if (byte(str2, j) = 27)
+		{
+			receiveString = receiveString + chr(byte(str2, j+1)-128);	
+			j = j+1;
+		} 
+		else
+		{
+			receiveString = receiveString + chr(byte(str2, j));
+		}
+	}    
+	while (byte(receiveString, 1) = 6)
+	{
+		receiveString = right(receiveString, len(receiveString)-1);
+	}
+	return (receiveString);
+}
+
+// ________________________________________________________________________________________________ Simpl Events
+CHANGE modulesTx$
+{        
+	if (xOK1)
+	{
+		xOK1 = 0;
+		while (len(modulesTx$))
+		{                 
+			marker1 = find("\x03\x03\x03\x03\x03", modulesTx$);
+			marker2 = marker1 + 5;    
+			if (marker2 <= len(modulesTx$))
+			{
+				while (byte(modulesTx$, marker2) = 3)
+				{
+					marker1 = marker1 + 1;
+					marker2 = marker2 + 1;  
+					if (marker2 > len(modulesTx$))
+					{
+						break;
+					}
+				} 
+			}
+			if (marker1)
+			{                   
+				marker1 = marker1 + 4;
+				tempString1 = remove(mid(modulesTx$, 1, marker1), modulesTx$);
+				makeString(tempString1, "%s%s%s", left(tempString1, 1), g_sNode_ID, right(tempString1, len(tempString1)-3));
+				call send(left(tempString1, len(tempString1)-5));
+				clearbuffer(tempString1);
+			}                            
+		}
+		xOK1 = 1;
+	}
+}
+
+Threadsafe CHANGE RX$
+{
+	// \x02\x88\xD2\x1B\x95\x1B\x83\x00\x01\x4E\x00\x01\x00\x00\x00\x01\x1B\x83\x03
+	
+	while(1)
+	{
+		tempString2 = Gather("\x03", RX$) ;
+		
+		if (byte(tempString2, 1) = 6)
+		{
+			tempString2 = Right(tempString2, Len(tempString2) - 1);
+		}
+		   
+		tempString3 = receive(tempString2);
+		//	\x02\x88\xD2\x15\x03\x00\x01\x4E\x00\x01\x00\x00\x00\x01\x03\x03				
+		if((len(tempString3) >= 4) && (byte(tempString3,3) = byte(g_sNode_ID,1)) && (byte(tempString3,4) = byte(g_sNode_ID,2))) //make sure message is intended for this node
+		{
+			modulesRx$ = tempString3 + "\x03\x03\x03\x03";
+		//	\x02\x88\xD2\x15\x03\x00\x01\x4E\x00\x01\x00\x00\x00\x01\x03\x03\x03\x03\x03\x03
+		}		                                                              
+		clearbuffer(tempString2);
+		clearbuffer(tempString3);
+	}	
+}
+Change Node_ID
+{
+	If(Len(Node_ID) = 2)
+	{
+		g_sNode_ID = Node_ID ;
+		Node_ID_FB = g_sNode_ID      ;
+	}
+}
+// ________________________________________________________________________________________________ Start Up Code
+Function Main()
+{
+	
+	g_sNode_ID = Default_Node_ID ;
+	Node_ID_FB = g_sNode_ID      ;
+	
+	xOK1 = 1;
+	xOK2 = 1;
+	
+}

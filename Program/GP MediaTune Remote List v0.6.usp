@@ -1,0 +1,378 @@
+/* GreenPoint TDI 
+
+Development Notes _________________________________________________________________________ Development Notes /*
+v0.6 :  Changed size of Channel support to 500
+		Changed logic in handling the Local_Channel_Filter
+
+v0.5 :  Field version of changing the leading Local_channel_Filter character to 1.
+
+v0.4 :  Added bug fixes for local channel filtering in Remote Core
+
+v0.3 :  Added Filter_String feature (driven from an outside source)
+        Added Search Provider Local Encoder
+        Removed all search attribute text logic
+        
+v0.2 :  Major changes to sharp routines.
+		Added search highlighting
+		Added blocking to access of RemoteCore.channelsList
+		Added all HTML formatting configuratino
+
+v0.1 :  Slimmed down HTML overhead by cutting out flexibility of html formatting
+		Added List_Refresh to the wrapper for access to the programmer to manual invoke.
+
+v0.0 :  Release to production in the MGM Grand Tap Bar    
+
+		
+#If_Defined cDebug
+#EndIf
+
+Development Notes _________________________________________________________________________ Development Notes */
+
+// ________________________________________________________________________________ Module Compile Time Behavior
+//#Define_Constant cDebug            1
+
+//#Enable_Dynamic                                     
+//#Enable_Trace
+#ENABLE_STACK_CHECKING
+#DEFAULT_VOLATILE                      
+#Category                          "46"  "MediaTune"
+#Output_Shift                      2
+//#Analog_Serial_Expand              OutputsWithParams
+
+// ___________________________________________________________________________________________________ Constants
+// General
+#Define_Constant cMaxSearchChr         32
+#Define_Constant cMaxFilters           10 // Actual check is in sharp, this only expands the + wrapper IO
+#Define_Constant cMaxChannels          500
+
+// List Select
+#Define_Constant cChannel_Major        1
+#Define_Constant cChannel_Minor        2
+#Define_Constant cChannel_Callsign     3
+#Define_Constant cChannel_Indentifier  4
+#Define_Constant cChannel_l            5
+#Define_Constant cChannel_Content_Now  6
+#Define_Constant cChannel_Content_Next 7
+#Define_Constant cChannel_Categories   8
+#Define_Constant cChannel_Name         9
+#Define_Constant cChannel_IconIndex    10
+#Define_Constant cChannel_IconFile     11
+#Define_Constant cChannel_Provider     12
+#Define_Constant cChannel_Data_Count   12
+
+// Search - Labels Configured in Function Main
+#Define_Constant cSearch_Major         4
+#Define_Constant cSearch_Minor         0  // Reserved
+#Define_Constant cSearch_Callsign      3 
+#Define_Constant cSearch_Indentifier   0  // Reserved
+#Define_Constant cSearch_l             0  // Reserved
+#Define_Constant cSearch_Content_Now   1 
+#Define_Constant cSearch_Content_Next  0  
+#Define_Constant cSearch_Categories    2
+#Define_Constant cSearch_Name          0  // Reserved
+#Define_Constant cSearch_IconIndex     0  // Reserved
+#Define_Constant cSearch_IconFile      0  // Reserved
+#Define_Constant cSearch_Provider      5
+#Define_Constant cSearch_Attribute_Count  5
+#Define_Constant cSearch_Attribute_Max    12
+
+// ____________________________________________________________________________________________________________ Libraries
+#IncludePath "..\\..\\mediaTune\\mediaTune\\bin"
+#USER_SIMPLSHARP_LIBRARY "mediaTune"
+
+// _____________________________________________________________________________________________________ F1 Help
+//#HINT                              ""
+//#HELP_PDF_FILE ""
+#Help_Begin
+GreenPoint TDI   www.greenpointtdi.com
+
+Channel_Data_FB[01] = Channel_Major_FB
+Channel_Data_FB[02] = Channel_Minor_FB
+Channel_Data_FB[03] = Channel_Callsign_FB
+Channel_Data_FB[04] = Channel_Indentifier_FB
+Channel_Data_FB[05] = Channel_?_FB
+Channel_Data_FB[06] = Channel_Content_Now_FB
+Channel_Data_FB[07] = Channel_Content_Next_FB
+Channel_Data_FB[08] = Channel_Categories_FB
+Channel_Data_FB[09] = Channel_Name_FB
+Channel_Data_FB[10] = Channel_IconIndex_FB
+Channel_Data_FB[11] = Channel_IconFile_FB
+Channel_Data_FB[12] = Channel_Provider_FB
+
+#Help_End
+// ________________________________________________________________________________________ Simpl Input - Output 
+Digital_Input  _SKIP_                                            ;
+Digital_Input  List_HTML_Config_Set                              ;
+Digital_Input  List_Refresh                                      ;
+Digital_Input  Search_Enter                                      ;
+String_Input   Search_Text[cMaxSearchChr]                        ;
+Analog_Input   _SKIP_                                            ;
+Analog_Input   Filter_                                           ;
+Analog_Input   Sort_                                             ;
+Analog_Input   Search_Attributes                                 ;
+Analog_Input   List_Select                                       ;
+Buffer_Input   Local_Channel_Filter[4096]                        ;
+String_Input   List_HTML_Channel_Font_Size[2]                    ;
+String_Input   List_HTML_Channel_Font_Face[32]                   ;
+String_Input   List_HTML_Channel_Font_Color[6]                   ;
+String_Input   List_HTML_Content_Font_Size[2]                    ;
+String_Input   List_HTML_Content_Font_Face[32]                   ;
+String_Input   List_HTML_Content_Font_Color[6]                   ;
+String_Input   List_HTML_SearchFound_Font_Color[6]               ;
+Analog_Input   _SKIP_,_SKIP_,_SKIP_,_SKIP_,_SKIP_                ;
+String_Input   Filter_Text[cMaxFilters][32]         ;
+//Analog_Input   _SKIP_                                            ;
+
+Digital_Output List_Busy_FB                                       ;
+Digital_Output Search_Enter_Enable_FB                             ;
+Digital_Output Search_No_Result_FB                                ;
+String_Output  Message_FB                                         ;
+Analog_Output  Filter_FB                                          ;
+Analog_Output  Sort_FB                                            ;
+Analog_Output  Search_Attributes_FB                               ;
+Analog_Output  List_Select_FB                                     ;
+Analog_Output  _SKIP_                                             ;
+String_Output  List_HTML_Channel_Font_Size_FB                     ;
+String_Output  List_HTML_Channel_Font_Face_FB                     ;
+String_Output  List_HTML_Channel_Font_Color_FB                    ;
+String_Output  List_HTML_Content_Font_Size_FB                     ;
+String_Output  List_HTML_Content_Font_Face_FB                     ;
+String_Output  List_HTML_Content_Font_Color_FB                    ;
+String_Output  List_HTML_SearchFound_Font_Color_FB                ;
+Analog_Output  _SKIP_                                             ;
+Analog_Output  List_Count_FB                                      ;
+Analog_Output  List_Select_IconIndex_FB                           ;
+String_Output  List_Select_HTML_Format_FB                         ;
+Analog_Output  _SKIP_                                             ;
+String_Output  Filter_Text_FB[cMaxFilters]                        ;
+Analog_Output  _SKIP_                                             ;
+String_Output  List_Select_Channel_Data_FB[cChannel_Data_Count]   ;
+Analog_Output  List_IconIndex_FB[cMaxChannels]                    ;
+String_Output  List_HTML_FB[cMaxChannels, cMaxChannels]           ;
+
+// __________________________________________________________________________________________________ Parameters
+// _____________________________________________________________________________________________ Global Varibles
+RemoteList thisList;
+
+Integer g_iList_Select_Index  ;
+
+String  g_sSearch_Attribute_Text[cSearch_Attribute_Count][32] ;
+
+Integer g_iSearch_Attributes_Active ;
+// ___________________________________________________________________________________________________ Functions
+Function fget_Channel_Data() // Single point to get channel data from sharp
+{
+	Integer iChanIndex ;
+	Integer iDataIndex ;
+	String  sChannel_Data[cChannel_Data_Count][255] ;
+	String  sHTML[1024] ;
+				
+	If(g_iList_Select_Index)
+	{
+		Try
+		{
+			iChanIndex = thisList.majorList[g_iList_Select_Index - 1] ;
+			
+			For(iDataIndex = 1 To cChannel_Data_Count - 1 Step 1)
+			{
+				sChannel_Data[iDataIndex] = RemoteCore.getChannelData(iChanIndex, iDataIndex - 1) ;
+				List_Select_Channel_Data_FB[iDataIndex] = sChannel_Data[iDataIndex] ;
+			}
+			
+			List_Select_IconIndex_FB = AtoI(sChannel_Data[cChannel_IconIndex])  ;
+			
+			sHTML = "<P>" ;
+			
+			sHTML = sHTML + thisList.channelCallsign_htmlFormatting + sChannel_Data[cChannel_Major] + " - " + sChannel_Data[cChannel_Callsign] + "</FONT><BR>" ;
+			sHTML = sHTML + thisList.content_htmlFormatting + "Now:  " + sChannel_Data[cChannel_Content_Now] + "<BR>Next:  " + sChannel_Data[cChannel_Content_Next] + "</FONT>" ;
+			
+			sHTML = sHTML + "</P>" ;
+			List_Select_HTML_Format_FB = sHTML ;
+		}
+		Catch
+		{
+			MakeString(Message_FB,"Function fget_Channel_Data Exception: %s", GetExceptionMessage());
+		}
+		
+	}	
+	Else
+	{
+		MakeString(Message_FB,"Function fget_Channel_Data Ignored: g_iList_Select_Index Zero.");
+	}                                                                      	
+
+}
+
+// ________________________________________________________________________________________________ Sharp Events
+EventHandler eSubscriptionFB(SubscriptionFB_EventArgs e)
+{
+	If(e.SubscriptionFB)
+	{
+		thisList.initialize();
+	}
+} 
+EventHandler eChannel_Count(ChannelCountEventArgs e)
+{
+	If(e.Channel_Count)
+	{
+		thisList.refresh();
+	}
+}
+
+EventHandler eChannel_Index(ChannelIndexEventArgs e) // Change event driven from Sharp on a parse
+{	
+	If(e.Channel_Index = g_iList_Select_Index)
+	{
+		fget_Channel_Data()  ; // Single point to get channel data from sharp
+	}
+}
+
+Callback Function cbf_Filter_FB(Integer v) { Filter_FB = v ;}
+Callback Function cbf_Sort_FB(Integer v) { Sort_FB = v ;}
+
+Callback Function cbf_List_FB(Integer iCount) 
+{ 
+	Integer iChannel ;
+    
+    List_Count_FB = iCount ;
+    
+	Try
+	{		
+		For(iChannel = 1 To iCount Step 1)
+		{                                          
+			List_IconIndex_FB[iChannel] = thisList.iconIndexList[iChannel - 1]  ;			
+			List_HTML_FB[iChannel] = thisList.htmlList[iChannel - 1] ;
+		}
+		
+	}
+	Catch
+	{
+		MakeString(Message_FB,"Function cbf_List_FB Exception: %s", GetExceptionMessage());
+	}
+}
+
+Callback Function cbf_SearchNoResult_FB(Integer v) { Pulse(1, Search_No_Result_FB) ;}
+Callback Function cbf_ListBusy_FB(Integer v) { List_Busy_FB = v ;}
+
+Callback Function cbf_HTMLConfig_FB(String chnSize, String chnFace, String chnColor, String cntSize, String cntFace, String cntColor, String srchColor)
+{
+	List_HTML_Channel_Font_Size_FB = chnSize ;
+	List_HTML_Channel_Font_Face_FB = chnFace ;
+	List_HTML_Channel_Font_Color_FB = chnColor ;
+	List_HTML_Content_Font_Size_FB = cntSize ;
+	List_HTML_Content_Font_Face_FB = cntFace ;
+	List_HTML_Content_Font_Color_FB = cntColor ;
+	List_HTML_SearchFound_Font_Color_FB = srchColor ;
+}
+Callback Function cbf_SearchAttributes_FB(Integer v) { Search_Attributes_FB = v ;} 
+Callback Function cbf_FilterText_FB(Integer v, String Text) { Filter_Text_FB[v] = Text ; }
+Callback Function cbf_Channel_Count_Local_Filter_FB(Integer v) { List_Count_FB = v ;}
+
+// ________________________________________________________________________________________________ Simpl Events
+Push List_Refresh
+{
+	If(ChannelCount_Remote.ChannelCount)// Make Sure the system has been fully initialized befor letting Simpl call
+	{
+		thisList.refresh();
+	}
+	Else
+	{
+		MakeString(Message_FB,"Push List Refresh Event : Channel Count = Zero (Not initialized?).");
+	}
+}
+
+Change List_Select
+{
+	If(List_Select)
+	{
+		g_iList_Select_Index = List_Select    ;
+		List_Select_FB = g_iList_Select_Index ;
+		
+		Try
+		{
+			If(ChannelCount_Remote.ChannelCount)// Make Sure the system has been fully initialized befor letting Simpl call
+			{				
+				fget_Channel_Data() ;
+			}
+			Else
+			{
+				MakeString(Message_FB,"Change List Select Event : Channel Count = Zero (Not initialized?).");
+			}
+		}
+		Catch
+		{
+			MakeString(Message_FB,"Change List Select Event Exception: %s", GetExceptionMessage());
+		}
+	}
+	Else
+	{
+		MakeString(Message_FB,"Change List Select Event: Ignored Index Zero Value.");
+	}
+}
+Change Local_Channel_Filter
+{
+	If(Find("\x03", Local_Channel_Filter))
+	{
+		thisList.localChannelFilter = Remove("\x03", Local_Channel_Filter) ;
+	}
+}
+Change Filter_ {	thisList.filter = Filter_ ;	}
+Change Sort_ {	thisList.sort = Sort_ ; }
+Change Search_Attributes
+{
+	thisList.searchAttributes = Search_Attributes ;
+	If(Search_Attributes = 0)
+	{
+		thisList.refresh();
+	}
+}
+
+Push Search_Enter
+{
+	thisList.searchText = Search_Text;
+}
+
+Change Search_Text
+{
+	If(Len(Search_Text))
+	{
+		Search_Enter_Enable_FB = On ;
+	}
+	Else
+	{		
+		Search_Enter_Enable_FB = Off ;		
+	}
+}
+
+Push List_HTML_Config_Set
+{
+	thisList.htmlFormatSet(List_HTML_Channel_Font_Size, List_HTML_Channel_Font_Face, List_HTML_Channel_Font_Color, List_HTML_Content_Font_Size, List_HTML_Content_Font_Face, List_HTML_Content_Font_Color, List_HTML_SearchFound_Font_Color) ;
+}
+Change Filter_Text
+{
+	Integer i;
+	
+	i = GetLastModifiedArrayIndex();
+	thisList.filterText(i, Filter_Text[i]) ;		
+}
+// ________________________________________________________________________________________________ Start Up Code
+Function Main() 
+{	
+	RegisterEvent(SubscriptionFB_Remote, onSubscription_FB_Change, eSubscriptionFB) ;
+	RegisterEvent(ChannelCount_Remote, onChannelCount_Remote_Change, eChannel_Count) ;
+	RegisterEvent(ChannelIndex, onChannelIndex_Data_Change, eChannel_Index) ;	
+    
+	RegisterDelegate(thisList, filterChange, cbf_Filter_FB);
+    RegisterDelegate(thisList, sortChange, cbf_Sort_FB);
+	RegisterDelegate(thisList, listChange, cbf_List_FB);
+	RegisterDelegate(thisList, listBusyChange, cbf_ListBusy_FB);
+	RegisterDelegate(thisList, searchNoResultChange, cbf_SearchNoResult_FB);
+	RegisterDelegate(thisList, htmlConfigChange, cbf_HTMLConfig_FB);
+	RegisterDelegate(thisList, searchAttributesChange, cbf_SearchAttributes_FB);
+	
+	RegisterDelegate(thisList, filterTextChange, cbf_FilterText_FB);
+	
+	RegisterDelegate(thisList, localChannelFilterCountChange, cbf_Channel_Count_Local_Filter_FB);
+	                                    	
+}
+
+

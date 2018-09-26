@@ -1,0 +1,427 @@
+/* GreenPoint TDI - SAS
+
+Development Notes _________________________________________________________________________ Development Notes /*
+v0.0  : 
+
+#If_Defined cDebug
+#EndIf
+
+Development Notes _________________________________________________________________________ Development Notes */
+
+// ________________________________________________________________________________ Module Compile Time Behavior
+//#Define_Constant cDebug            1
+
+//#Enable_Dynamic                                     
+#Enable_Trace
+#ENABLE_STACK_CHECKING
+#DEFAULT_VOLATILE  
+#CATEGORY "32" // Miscellaneous                    
+#Output_Shift                      	2
+//#Analog_Serial_Expand              OutputsWithParams
+
+// ___________________________________________________________________________________________________ Constants
+#Define_Constant cMaxObjects           	9
+#Define_Constant CmaxConfig            	9
+#DEFINE_CONSTANT cMaxFileSize      		16384
+#Define_Constant cMaxCharData      		200
+#DEFINE_CONSTANT cMaxCharFileExt   		64
+#DEFINE_CONSTANT cMaxCharFilePath  		128
+#define_constant cMaxChar				32
+#ENABLE_TRACE
+// _____________________________________________________________________________________________________ F1 Help
+//#HINT                              ""
+//#HELP_PDF_FILE ""
+//Help_Begin
+//#Help_End
+// ________________________________________________________________________________________ Simpl Input - Output 
+Digital_Input	_SKIP_,_SKIP_,_SKIP_							;
+Digital_Input  	Read ,_SKIP_,Save                                ;
+Digital_Input	_SKIP_											;
+String_Input   	Search_FileExt[64]                               ;
+String_Input	_SKIP_											;
+//Analog_input   	menu_item_zone[cMaxObjects]						;
+//String_input   	menu_item_zone_order[cMaxObjects][cMaxChar]		;
+//Analog_input   	menu_item_source[cMaxObjects]					;
+//String_input   	menu_item_source_order[cMaxObjects][cMaxChar]	;
+//Analog_input   	menu_item_default[cMaxObjects],_Skip_			;
+
+Digital_Output File_Ops_Busy_FB                                 ;
+Digital_output busy_Fb											;
+Digital_Output _SKIP_                                           ;
+String_Output  File_Ops_Message_FB                              ;
+String_Output  File_Path_FB                                     ;
+String_Output  File_Time_FB                                     ;
+String_Output  File_Date_FB                                     ;
+String_Output	_SKIP_ 											;
+String_Output	_SKIP_ 											;
+String_output config_label[1]									;
+string_output area_label[1]										;
+analog_output area_type[1]										;
+analog_output area_video[1]										;
+analog_output area_audio[1]										;
+analog_output menu_items[1]										;
+analog_output menu_item_type[cMaxObjects]						;
+analog_output menu_item_icon[cMaxObjects]						;
+String_output menu_item_label[cMaxObjects]						;
+analog_output menu_item_outputs[cMaxObjects]					;
+string_output menu_item_output_order[cMaxObjects]				;
+analog_output menu_item_inputs[cMaxObjects]						;
+string_output menu_item_input_order[cMaxObjects]				;
+analog_Output menu_item_out_dflt[cMaxObjects]		          	;
+
+
+
+
+// __________________________________________________________________________________________________ Parameters
+String_Parameter  File_Path[cMaxCharFileExt]                    ;
+#BEGIN_PARAMETER_PROPERTIES File_Path
+	propValidUnits       = unitString                           ;
+	propDefaultUnit      = unitString                           ;
+	propDefaultValue     = "\\NVRAM\\"                           ;
+	propShortDescription = "ex. \\CF0\\"                        ;
+#END_PARAMETER_PROPERTIES
+String_Parameter  Defualt_Search_FileExt[cMaxCharFileExt]       ;
+#BEGIN_PARAMETER_PROPERTIES Defualt_Search_FileExt
+	propValidUnits       = unitString                           ;
+	propDefaultUnit      = unitString                           ;
+	propDefaultValue     = "*TPConfig.xml"                      ;
+	propShortDescription = "Can Use wildcard *"                 ;
+#END_PARAMETER_PROPERTIES
+
+
+// _____________________________________________________________________________________________ Global Varibles
+String  g_sFile[cMaxFileSize]                                   ;
+String  g_sPathFileExt[cMaxCharFilePath]                        ;
+String  g_sPathFileExt_Srch[cMaxCharFilePath]                   ;
+integer g_iCurrent												;
+								
+// ___________________________________________________________________________________________________ Functions
+String_Function fXML_Attribute(String Data, String Tag, String Attribute)
+{
+	Integer iStart, iCount,iTmp                                         ;
+    String  sReturn[cMaxCharData]                                       ;
+    String  sAttribute[200]                                             ;
+	String  sTag[200]                                                   ;
+	//<att pos="1" dflt="1" type="Mon" brand="Samsung" mod="MH46EFG"/>
+	sTag = "<" + Tag                                                    ;
+	
+	If(Find(sTag, Data))                                          
+	{                                                            
+		iStart = Find(sTag, Data) + Len(sTag)                           ;
+		sAttribute = Attribute + "=\x22"                                ;
+		 
+		
+		If(Find(sAttribute, Data, iStart))
+		{ 
+			iStart  = Find(sAttribute, Data, iStart) + Len(sAttribute)  ;
+			iCount  = Find("\x22", Data, iStart)                        ;
+			iCount  = iCount - iStart                                   ;
+			sReturn = Mid(Data, iStart, iCount)                         ;
+			
+			Return(sReturn)                                             ;
+		}                                             
+		Return("")                                                      ;
+	}
+	Return("")                                                          ;
+}
+
+Function fParse()
+{
+	String   sData[3200]                                                            ;
+	String   sTemp[16344]															;
+	String   sData2[3200]															;
+	String   sLL[50]                                                             	;
+	STring   sArea[20]																;
+	String	 sAreaType[5]															;
+	String	 sAreaVideo[5]															;
+	String	 sAreaAudio[5]															;	
+	string   sMenu[5]																;
+    String   sAP[Cmaxconfig][5]                                                     ;
+	String   sAt[Cmaxconfig][20]                                                    ;
+	String	 sAty[Cmaxconfig][20]													;     
+	STRING	 sAl[Cmaxconfig][20]													;
+	String   sAz[Cmaxconfig][20]                                                    ;
+	String   sAs[Cmaxconfig][20]                                                    ;
+	String   sAd[Cmaxconfig][20]                                                    ;
+	String   sAzo[Cmaxconfig][65]													;
+	String   sAso[Cmaxconfig][65]													;
+	integer  i,j,k,l																; 				
+	
+	i = 0                                                                           ;
+	sTemp = g_sFile																	;
+	If(Find("?>", g_sFile))
+	{
+		sData = Remove("?>", sTemp)                                                 ; // Strip off XML doc declarations
+	}
+	If(Find("-->", sTemp))
+	{
+		sData = Remove("-->", sTemp)                                                       ; // Strip off XML comments, XML comments should be place between doc declarations and root element
+	}
+	If(Find("</ProgConfig>", sTemp) && Find("<ProgConfig>", sTemp))
+	{
+		sData = Remove("<ProgConfig>", sTemp)                                               ; // Trash opening tag
+		
+		While(find("<obj>",sTemp)&& find("</obj>",sTemp))			//run if any attributes
+		{
+				
+					
+					SData2 =Remove("</obj>", sTemp)													;
+					sData = Remove("<obj>",SData2)													;
+					i=i+1																			;
+						While(Find("<Label ", SData2))
+							{
+								sData = Remove("/>", SData2)										;
+								sLL	=			fXML_Attribute(sData,"Label","l")					;			
+								config_label[i]=sLL                                 				;													
+							}
+                        While(Find("<Area ", SData2))
+							{
+								sData = Remove("/>", SData2)										; 
+								sArea =			fXML_Attribute(sData, "Area" , "l")					;
+								sAreaType = 	fXML_Attribute(sData, "Area" , "t")					;
+								sAreaVideo = 	fXML_Attribute(sData, "Area" , "v")					;
+								sAreaAudio = 	fXML_Attribute(sData, "Area" , "a")					;
+								area_label[i]= sArea												;
+								area_type[i] = atoi(sAreaType)										;
+                                area_video[i] = atoi(sAreaVideo)									;
+	       						area_audio[i] = atoi(sAreaAudio)									;
+							}
+                        While(Find("<Menu ", SData2))
+							{
+								sData = Remove("/>", SData2)										; 
+								sMenu =			fXML_Attribute(sData, "Menu" , "items")				;
+								menu_items[i] = atoi(sMenu)											;    	
+							}
+						While(Find("<Att ", SData2))
+							{
+								j = j+1																;
+								sData = Remove("/>", SData2)										;  
+								sAP[j]  =       fXML_Attribute(sData, "Att" , "pos")       			;  
+								sAt[j]  =       fXML_Attribute(sData, "Att" , "type")       		;
+								sAty[j] =		fXML_Attribute(sData, "Att" , "icon")       		;
+                    			sAl[j]  =       fXML_Attribute(sData, "Att" , "label")       		; 
+                    			sAz[j]  =       fXML_Attribute(sData, "Att" , "zones")       		;
+								sAzo[j] =		fXML_Attribute(sData, "Att" , "zOrder")       		;
+								sAs[j]  =       fXML_Attribute(sData, "Att" , "sources")       		;
+								sAso[j] =		fXML_Attribute(sData, "Att" , "sOrder")       		;
+								sAd[j]  =       fXML_Attribute(sData, "Att" , "default")       		;						
+								if(Atoi(sAP[j])<= Cmaxobjects){k=Atoi(sAP[j]);}						
+                                switch(i)
+								{
+                                 	case(1):
+										{
+                                          	menu_item_type[k]= atoi(sAt[j])					;
+ 											menu_item_label[k]= sAl[j]						;
+ 											menu_item_icon[k]= atoi(sAty[j])				;
+											menu_item_outputs[k]= atoi(sAz[j])				;
+											menu_item_output_order[k] = sAzo[j]				;
+											menu_item_inputs[k]= atoi(sAs[j])				;
+											menu_item_input_order[k]= sAso[j]				;
+											menu_item_out_dflt[k]= atoi(sAd[j])             ;
+										}
+	
+
+								}
+							}
+						
+                        								
+						                             							 				
+					
+							 	
+
+					
+		}		                                               
+							j=0																			;
+   	    					sData2=""																		;
+        
+         		
+		                                                                
+	}
+		If(i = 0) File_Ops_Message_FB = "Error : Could not find <ProgConfig> </ProgConfig> root Tags"    ; //
+	
+	
+		
+	
+}
+//Integer_Function fWrite()
+//{ 
+//	Integer i,j,k                                                                  ;
+//	Signed_Integer iHandle, iFind                                                  ;
+//	Signed_Long_Integer iBytes                                                     ;
+//	String sData[16384],sData2[16384],sData1[16384],stemp3[2000],stemp2[2000],trash[30],build[2000],obj_head[CmaxConfig][2000]      ;
+//	String stemp[16384],header[1000]											   ;
+//	sData2 = g_sFile                                    						   ;
+//	j=0;
+//	
+//	
+//	header = remove("<ProgConfig>",sData2);
+//	while(find("<obj>",sData2)&&find("</obj>",sData2))
+//		{
+//			k = 0;										
+//			j=j+1;
+//			stemp = remove("</obj>",sData2)										;
+//			obj_head[j] = remove("/>",stemp,find("<Menu ",stemp));
+//			trace("Temp has removed object: %s",stemp);
+//			while(find("<Att ",stemp))
+//				{
+//					trace("drop in ATT while");
+//					k=k+1;
+//					stemp3= remove("/>",stemp,find("<Att ",stemp));
+//					 
+//					switch(j)
+//					{	
+//						case(1):
+//							{
+//								
+//                          stemp2 = remove("zones=\x22", stemp3) ;
+//							stemp2 = stemp2 + itoa(menu_item_zone[k]) + "\x22" + "\x20" ;
+//							trash = remove("\x22", stemp3)							;
+//							trash = remove("zOrder=\x22",stemp3)					;
+//							stemp2 = stemp2 +trash+ menu_item_zone_order[k] + "\x22" + "\x20" ;
+//							trash = remove("\x22", stemp3)							;
+//                          trash = remove("sources=\x22", stemp3)						;
+//                       		stemp2 = stemp2 +trash+ itoa(menu_item_source[k]) + "\x22" + "\x20" ;
+//							trash = remove("\x22", stemp3)							;
+//							trash = remove("sOrder=\x22",stemp3)					;
+//							stemp2 = stemp2 +trash+ menu_item_source_order[k] + "\x22" + "\x20" ;
+//							trash = remove("\x22", stemp3)							;
+//                          trash = remove("default=\x22", stemp3)						;
+//                            stemp2 = stemp2 +trash+ itoa(menu_item_default[k]) + "\x22" + "/>" ;
+//							}
+//
+//            				
+//					}
+//					build = build +stemp2											;
+//					stemp2="";
+//
+//                 }
+//				trace("drop out ATT while");
+//			
+//				sData = sData+obj_head[j]+build+"\r"+"</obj>"											;
+//				trace("Build data : %s",sData);
+//				build = "";												
+//			k= 0;	
+//		
+//		}
+//	trace("drop out obj while");
+//
+//	sData1 = header + sData +"\r"+ "</" + "ProgConfig"+">\n"                                    ;
+//	StartFileOperations()                                                          ;
+//	iHandle = FileOpen(g_sPathFileExt, _O_Creat | _O_Trunc | _O_WRonly | _O_Text )    ;
+//	If(iHandle >= 0)
+//	{
+//		iBytes = FileWrite(iHandle, sData1, Len(sData1))                             ;
+//		FileClose(iHandle)                                                         ;
+//		EndFileOperations()                                                        ;
+//		If(iBytes >= 0)
+//		{				
+//			Trace("File Write Success");
+//			Return(1)                                                              ;
+//
+//		}
+//		Else
+//		{			
+//			Trace("File Write Error = %ld", iBytes);			
+//			Return(0)                                                              ;	
+//		}			
+//	}
+//	Else
+//	{
+//		FileClose(iHandle)                                                         ;
+//		EndFileOperations()                                                        ;
+//		Trace("File Open for Write Error = %d", iHandle);
+//		Return(0)                                                                  ;	
+//	}			
+//}
+
+	
+integer_Function fRead()
+{
+	Signed_Integer      siHandle, siFind                                                     ;
+	Signed_Long_Integer sliBytes                                                             ;
+	File_Info           FileInfo                                                             ;
+	
+	File_Ops_Busy_FB = On                                                                    ;
+	
+	StartFileOperations()                                                                    ;
+	siFind = FindFirst(g_sPathFileExt_Srch, FileInfo)                                        ;
+	FindClose()                                                                              ;
+	If(siFind = 0)
+	{//Found Directory and File... Just Read the File into SDRAM
+		g_sPathFileExt = File_Path + FileInfo.Name                                           ;
+		siHandle = FileOpen(g_sPathFileExt, _O_RDonly | _O_Text )                            ; 
+		If(siHandle >= 0)
+		{// File Open Successfull... Now Read data
+			sliBytes = FileRead(siHandle, g_sFile, FileLength(siHandle))                     ;
+			FileClose(siHandle)                                                              ;
+			EndFileOperations()                                                              ;
+            If(sliBytes >= 0)
+			{// File Read Successfull... Now Parse it out
+				
+														
+				fParse()                                                                     ;
+				File_Path_FB = g_sPathFileExt                                                ;
+				File_Time_FB = FileTime(FileInfo)                                            ;
+				File_Date_FB = FileDate(FileInfo, 1)                                         ;					
+				File_Ops_Busy_FB = Off                                                       ;
+								
+			}
+			Else
+			{
+				MakeString(File_Ops_Message_FB, "File Read Fail: Err=%ld", sliBytes)         ;
+				File_Ops_Busy_FB = Off                                                       ;
+				
+			}
+		}
+		Else
+		{
+			FileClose(siHandle)                                                              ;
+			EndFileOperations()                                                              ;
+			MakeString(File_Ops_Message_FB, "File Open Fail: Handle Err=%d", siHandle)       ;
+			File_Ops_Busy_FB = Off                                                           ;
+					}
+	}
+	Else
+	{	
+		EndFileOperations()                                                                  ;
+		MakeString(File_Ops_Message_FB,"File Not Found: %s", g_sPathFileExt_Srch)            ;
+		File_Ops_Busy_FB = Off                                                               ;
+		                                                              
+	}
+}
+
+// ________________________________________________________________________________________________ Simpl Events
+
+Push Read
+{
+	If(!File_Ops_Busy_FB)   fRead()                                                          ;	
+}
+push save
+{
+// 	If(!File_Ops_Busy_FB){fwrite();}
+//	if(fwrite()){fread();}
+	
+}
+Change Search_FileExt
+{
+	string temp[64],temp2[64];
+	If(Len(Search_FileExt))
+		{
+			temp2= Search_FileExt;
+			if(find("Config",temp2)){temp=remove("Config",temp2);}
+				
+				
+			 g_sPathFileExt_Srch = File_Path + temp + temp2                 ;
+
+		}
+}
+
+// ________________________________________________________________________________________________ Start Up Code
+Function Main() 
+{
+	Integer i                                                                                  ;
+	g_sPathFileExt_Srch = File_Path + Defualt_Search_FileExt                                 ;	
+	//WaitForInitializationComplete()                                                            ;
+	//Slot_index=getprogramnumber()															;
+	
+}

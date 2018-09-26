@@ -1,0 +1,292 @@
+/* GreenPoint TDI - RBP
+
+Development Notes _________________________________________________________________________ Development Notes /*
+v0.0  : 
+
+#If_Defined cDebug
+#EndIf
+
+Development Notes _________________________________________________________________________ Development Notes */
+
+// ________________________________________________________________________________ Module Compile Time Behavior
+//#Define_Constant cDebug            1
+
+//#Enable_Dynamic                                     
+//#Enable_Trace
+#ENABLE_STACK_CHECKING
+#DEFAULT_VOLATILE                      
+//#Category                          "9"  //Memory
+#Output_Shift                      2
+//#Analog_Serial_Expand              OutputsWithParams
+
+// ___________________________________________________________________________________________________ Constants
+#Define_Constant cMaxObjects           150
+#Define_Constant Cmaxconfig           10
+#DEFINE_CONSTANT cMaxFileSize      16384
+#Define_Constant cMaxCharData      200
+#DEFINE_CONSTANT cMaxCharFileExt   64
+#DEFINE_CONSTANT cMaxCharFilePath  128
+
+// _____________________________________________________________________________________________________ F1 Help
+//#HINT                              ""
+//#HELP_PDF_FILE ""
+#Help_Begin
+#Help_End
+// ________________________________________________________________________________________ Simpl Input - Output 
+Digital_Input  _SKIP_, _SKIP_                                   ;
+Digital_Input  Read                                             ;
+String_Input   Search_FileExt[64]                               ;
+
+Digital_Output File_Ops_Busy_FB                                 ;
+Digital_Output _SKIP_                                           ;
+String_Output  File_Ops_Message_FB                              ;
+String_Output  File_Path_FB                                     ;
+String_Output  File_Time_FB                                     ;
+String_Output  File_Date_FB                                     ;
+String_Output  _SKIP_                                           ;
+Analog_Output  HTML_Objects_Read_FB                   ;
+String_Output  _SKIP_                                           ;
+String_Output  HTML_Object_ID[cMaxObjects]                           ;
+
+// __________________________________________________________________________________________________ Parameters
+String_Parameter  File_Path[cMaxCharFileExt]                    ;
+#BEGIN_PARAMETER_PROPERTIES File_Path
+	propValidUnits       = unitString                           ;
+	propDefaultUnit      = unitString                           ;
+	propDefaultValue     = "\\CF0\\"                            ;
+	propShortDescription = "ex. \\CF0\\"                        ;
+#END_PARAMETER_PROPERTIES
+String_Parameter  Defualt_Search_FileExt[cMaxCharFileExt]       ;
+#BEGIN_PARAMETER_PROPERTIES Defualt_Search_FileExt
+	propValidUnits       = unitString                           ;
+	propDefaultUnit      = unitString                           ;
+	propDefaultValue     = "*HTMLConfig.xml"                     ;
+	propShortDescription = "Can Use wildcard *"                 ;
+#END_PARAMETER_PROPERTIES
+// _____________________________________________________________________________________________ Global Varibles
+String  g_sFile[cMaxFileSize]                                   ;
+String  g_sPathFileExt[cMaxCharFilePath]                        ;
+String  g_sPathFileExt_Srch[cMaxCharFilePath]                   ;
+
+
+// ___________________________________________________________________________________________________ Functions
+String_Function fXML_Attribute(String Data, String Tag, String Attribute)
+{
+	Integer iStart, iCount,iTmp                                              ;
+    String  sReturn[cMaxCharData]                                       ;
+    String  sAttribute[200]                                              ;
+	String  sTag[200]                                                    ;
+	//<Font FS="16" FF="Arial" FC="#9d790d" SP="<B>"/>	
+	sTag = "<" + Tag                                                    ;
+	
+	If(Find(sTag, Data))                                          
+	{                                                            
+		iStart = Find(sTag, Data) + Len(sTag)                           ;
+		sAttribute = Attribute + "=\x22"                                ;
+		 
+		
+		If(Find(sAttribute, Data, iStart))
+		{ 
+			iStart  = Find(sAttribute, Data, iStart) + Len(sAttribute)  ;
+			iCount  = Find("\x22", Data, iStart)                        ;
+			iCount  = iCount - iStart                                   ;
+			sReturn = Mid(Data, iStart, iCount)                         ;
+			
+			Return(sReturn)                                             ;
+		}                                             
+		Return("")                                                      ;
+	}
+	Return("")                                                          ;
+}
+
+Function fParse()
+{
+	String   sData[512]                                                                      ;
+	String   sData2[512]																		;
+	String   sFFS[Cmaxconfig][5]                                                             ;
+	String   sFFF[Cmaxconfig][20]                                                            ;
+	String   sFFC[Cmaxconfig][10]                                                            ;
+	STRING	 sFSP[Cmaxconfig][10]															;
+    String   sCT[Cmaxconfig][5]                                                             ;
+    String   sCSJ[Cmaxconfig][10]                                                             ;
+    String   sCDT[Cmaxconfig][50]                                                             ;
+	String   sCAT[Cmaxconfig][200]																;
+	String   sFFT[Cmaxconfig][200]                                                             ;
+	String   HTML_Object_temp[5][512]															;
+	String   HTML_temp_str[512]																	;		
+	Integer  i,j,K                                                                               ;
+ 
+	
+	i = 0                                                                                    ;
+	If(Find("?>", g_sFile))
+	{
+		sData = Remove("?>", g_sFile)                                                        ; // Strip off XML doc declarations
+	}
+	If(Find("-->", g_sFile))
+	{
+		sData = Remove("-->", g_sFile)                                                       ; // Strip off XML comments, XML comments should be place between doc declarations and root element
+	}
+	If(Find("</HTMLConfig>", g_sFile) && Find("<HTMLConfig>", g_sFile))
+	{
+		sData = Remove("<HTMLConfig>", g_sFile)                                               ; // Trash opening tag
+		
+		While(Find("<Font ", g_sFile)||Find("<CIPS ", g_sFile)||Find("<Format ", g_sFile))			//run if any attributes
+		{
+			if(find("<obj>",g_sfile)&& find("</obj>",g_sfile))
+				{
+					SData2 =Remove("</obj>", g_sFile)												;
+					sData = Remove("<obj>",SData2)													;
+					i=i+1																			;		
+						if(Find("<Font ", SData2))
+							{
+                                                                                          ; //
+								sData = Remove("/>", SData2)													; 
+								sFFS[i]   =         fXML_Attribute(sData, "Font" , "FS"    )       ; // 
+								sFFF[i]   =         fXML_Attribute(sData, "Font" , "FF"  )       ; //
+                    			sFFC[i]   =         fXML_Attribute(sData, "Font" , "FC"  )       ; //
+                    			sFSP[i]   =         fXML_Attribute(sData, "Font" , "SP"  )       ; //
+									
+								Delay(10)                                                                    ; //
+					
+							}
+						if(Find("<CIPS ", SData2))
+							{
+								sData = Remove("/>", SData2)													; 
+								sCT[i]   =         fXML_Attribute(sData, "CIPS" , "T"    )       ; // 
+								sCSJ[i]  =         fXML_Attribute(sData, "CIPS" , "SJ"  )       ; //
+                    			sCDT[i]  =         fXML_Attribute(sData, "CIPS" , "DT"  )       ; //
+                    			sCAT[i]  =		   fXML_Attribute(sData, "CIPS" , "AT"  )       ;				
+								Delay(10)                                                                    ; //
+					
+			    			}
+						if(Find("<Format ", SData2))
+							{
+                    			sData = Remove("/>", SData2)													; 
+								sFFT[i]   =         fXML_Attribute(sData, "Format" , "FT"    )       ; // 
+					                    								
+								Delay(10)                                                                    ; //
+					
+			    			}
+
+			
+
+					}
+		}		                                               
+		HTML_Objects_Read_FB = i                                                   ; //
+
+        For(j= 0 to cMaxObjects-1)
+		{
+            
+			
+					For( k = 1 to i)
+						{
+							if(len(sCSJ[k])=0)
+								{
+                                     HTML_Object_temp[k]= "<Font "+"size="+"\x22"+sFFS[k]+"\x22"+" "+"face="+"\x22"+sFFF[k]+"\x22"+" "+"color="+"\x22"+sFFC[k]+"\x22"+">"+sFSP[k]+
+														sCDT[k]+sFFT[k]+"</FONT>";
+
+
+								}
+							else
+								{
+										if(len(sCAT[k])=0)
+							 				{
+                 								HTML_Object_temp[k]= "<Font "+"size="+"\x22"+sFFS[k]+"\x22"+" "+"face="+"\x22"+sFFF[k]+"\x22"+" "+"color="+"\x22"+sFFC[k]+"\x22"+">"+sFSP[k]+
+												"<cip"+lower(sCT[k])+">"+sCT[k]+"$"+itoa(atoi(sCSJ[k])+j)+"?"+sCDT[k]+"</cip"+lower(sCT[k])+">"+sFFT[k]+"</FONT>";
+											}
+										else
+											{
+                                               HTML_Object_temp[k]="<Font "+"size="+"\x22"+sFFS[k]+"\x22"+" "+"face="+"\x22"+sFFF[k]+"\x22"+" "+"color="+"\x22"+sFFC[k]+"\x22"+">"+sFSP[k]+
+												"<cip"+lower(sCT[k])+">"+sCT[k]+"$"+itoa(atoi(sCSJ[k])+j)+"?"+sCDT[k]+"</cip"+lower(sCT[k])+">"+sFFT[k]+"</FONT>"+"<Font "+"size="+"\x22"+sFFS[k]+"\x22"+" "+"face="+"\x22"+sFFF[k]+"\x22"+" "+"color="+"\x22"+sFFC[k]+"\x22"+">"+sCAT[k]+"<"+"</FONT>";
+
+											}
+								}
+							HTML_temp_str = HTML_temp_str+HTML_Object_temp[k];
+						}
+					HTML_Object_ID[j+1]="<P>"+HTML_temp_str+"</textformat>"+"</P>";
+                    HTML_temp_str= "";
+ 		}
+ 
+		                                                                ; //
+		If(i = 0) File_Ops_Message_FB = "Error : Could not find any tags"                ; //
+	
+	}
+	Else
+		{
+			File_Ops_Message_FB = "Error : Could not find <HTMLConfig> </HTMLConfig> root Tags"    ; //
+		}
+	
+}	
+
+Integer_Function fRead()
+{
+	Signed_Integer      siHandle, siFind                                                     ;
+	Signed_Long_Integer sliBytes                                                             ;
+	File_Info           FileInfo                                                             ;
+	
+	File_Ops_Busy_FB = On                                                                    ;
+	
+	StartFileOperations()                                                                    ;
+	siFind = FindFirst(g_sPathFileExt_Srch, FileInfo)                                        ;
+	FindClose()                                                                              ;
+	If(siFind = 0)
+	{//Found Directory and File... Just Read the File into SDRAM
+		g_sPathFileExt = File_Path + FileInfo.Name                                           ;
+		siHandle = FileOpen(g_sPathFileExt, _O_RDonly | _O_Text )                            ; 
+		If(siHandle >= 0)
+		{// File Open Successfull... Now Read data
+			sliBytes = FileRead(siHandle, g_sFile, FileLength(siHandle))                     ;
+			FileClose(siHandle)                                                              ;
+			EndFileOperations()                                                              ;
+            If(sliBytes >= 0)
+			{// File Read Successfull... Now Parse it out					
+				fParse()                                                                     ;
+				File_Path_FB = g_sPathFileExt                                                ;
+				File_Time_FB = FileTime(FileInfo)                                            ;
+				File_Date_FB = FileDate(FileInfo, 1)                                         ;					
+				File_Ops_Busy_FB = Off                                                       ;
+				Return(1)                                                                    ;
+			}
+			Else
+			{
+				MakeString(File_Ops_Message_FB, "File Read Fail: Err=%ld", sliBytes)         ;
+				File_Ops_Busy_FB = Off                                                       ;
+				Return(0)                                                                    ;
+			}
+		}
+		Else
+		{
+			FileClose(siHandle)                                                              ;
+			EndFileOperations()                                                              ;
+			MakeString(File_Ops_Message_FB, "File Open Fail: Handle Err=%d", siHandle)       ;
+			File_Ops_Busy_FB = Off                                                           ;
+			Return(0)                                                                        ;
+		}
+	}
+	Else
+	{	
+		EndFileOperations()                                                                  ;
+		MakeString(File_Ops_Message_FB,"File Not Found: %s", g_sPathFileExt_Srch)            ;
+		File_Ops_Busy_FB = Off                                                               ;
+		Return(0)                                                                            ;
+	}
+}
+
+// ________________________________________________________________________________________________ Simpl Events
+
+Push Read
+{
+	If(!File_Ops_Busy_FB)   fRead()                                                          ;	
+}
+Change Search_FileExt
+{
+	If(Len(Search_FileExt)) g_sPathFileExt_Srch = File_Path + Search_FileExt                 ;
+}
+// ________________________________________________________________________________________________ Start Up Code
+Function Main() 
+{
+//	Integer i                                                                                  ;
+	g_sPathFileExt_Srch = File_Path + Defualt_Search_FileExt                                 ;	
+	//	WaitForInitializationComplete()                                                            ;
+	
+}

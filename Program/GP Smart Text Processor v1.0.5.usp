@@ -1,0 +1,472 @@
+//RBP
+
+/*--------------- Development Notes ------------------------------------------------------>
+
+v1.0 : Track corrections, if user manually undoes the auto correction leave it as the user put it.
+
+v1.0.1 : Getting rid of tracking corrections, implementing case sensitivity element, implementing
+		  suffix, prefix elements, implementing Read_Driver Digital_Input
+		  added Upper as an option for the Action element
+		  added Upper - Capitalization based on first character of input			                  
+
+v1.0.2 : Removed Correction attribute "Count" from the xml document driver, it was easy to forget to update the count 
+			in the xml document driver when adding a new item element. 
+		 Added a loop to count the items instead making adjustments to the xml document driver easier. This change required
+		 	the structure of the xml document driver to change. <Correction> tag of Parent element <Item> was changed to <Correct>
+		 	see the version samples of the xml document driver below. 
+
+v1.0.3 : Adding a parameter for Directory.... Compact Flash or NVRAM
+		 Adding a character in the file name of the XML document driver. 
+		 x.yy    x = Changes to the XML structure of the XML document driver
+		 		 yy = item verisioning (if a new item gets added to the document) use hexidecimal
+		 Adding a Digital_Output Read_Busy_FB to semphor the read logic
+		 Wrapping into a .umc at this point
+		 
+v1.0.4 : changed the parameter input to accept only the directory and not the encapsulating \\	- 060710 Infocomm 2010
+
+v1.0.5 : added the enable input. Enable was on the .UMC previously but only block strings from
+		  entering the module. Now it will prevent this module from looking for the driver as well - 082010 RBP	 
+
+I found tracking must be inplace or a similar mechanism for suffix and prefix actions. This is because the correction element
+doesn't change the original data's characters in the search string.
+		
+Right now the correction logic doesn't run on the first word of a string. Capitolizing the first character in the first word
+is part of the CHANGE event
+
+                                             
++++ BEGIN +++++++++++++  VERSION SAMPLES OF XML DOCUMENT DRIVER ++++++++++++++++++++++++++++++++++
+
+version 2.x of the xml document driver
+<KeyboardCorrectionDriver>
+	<Correction>
+		<Item>
+		    <SearchString> i </SearchString>   // sequence of characters to search for and correct
+			<Sensitive>1</Sensitive>           // 0=Case In-sensitive //1=Case Sensitive
+			<Correct>I</Correct>               // correct characters
+			<Action>Replace</Action>           // Options = Insert, Replace, Upper, Prefix, Suffix
+			<ActionPosition>2</ActionPosition> // 1 based index in the search string for action
+			<Offset>0</Offset>                 // number of characters that the original data will be changed -140 to 140 
+		</Item>
+	</Correction>	
+</KeyboardCorrectionDriver>
+
+version 1.x of the xml document driver
+<KeyboardCorrectionDriver>
+	<Correction Count="1">
+		<Item>
+		    <SearchString> i </SearchString>   // sequence of characters to search for and correct
+			<Sensitive>1</Sensitive>           // 0=Case In-sensitive //1=Case Sensitive
+			<Correction>I</Correction>         // correct characters
+			<Action>Replace</Action>           // Options = Insert, Replace, Upper, Prefix, Suffix
+			<ActionPosition>2</ActionPosition> // 1 based index in the search string for action
+			<Offset>0</Offset>                 // number of characters that the original data will be changed -140 to 140 
+		</Item>
+	</Correction>	
+</KeyboardCorrectionDriver>
+
++++ END +++++++++++++  VERSION SAMPLES OF XML DOCUMENT DRIVER ++++++++++++++++++++++++++++++++++++
+
+--- Suggestion Development ---------------------
+
+<KeyboardSuggestionDriver>
+	<Suggestion Count="1">
+		<Item>
+			<SearchString> mon</SearchString>
+			<Sensitive>0</Sensitive>
+			<Suggest>Monday</Suggest>
+			<Action>Replace</Action>
+			<ActionPosition>2</ActionPosition>
+			<Offset>3</Offset>			
+		</Item>
+	</Suggestion>
+<KeyboardSuggestionDriver>
+
+#DEFINE_CONSTANT       cSuggestion "KeyboardSuggestionDriver*.*.xml"
+
+Digital_Input  Enable_Suggestion          ;// 
+Digital_Input  _SKIP_                     ;// 
+Digital_Input  Use_Sugestion[5,5]         ;// 
+Digital_Input  _SKIP_                     ;// 
+Digital_Input  _SKIP_, _SKIP_, _SKIP_     ;// 
+
+String_Output  Suggestion_File            ;// 
+String_Output  Suggestion_File_Date       ;// 
+String_Output  Suggestion_File_Size       ;// 
+String_Output  _SKIP_                     ;// 
+String_Output  Sugestion[5,5]             ;//  
+
+Structure strcSuggest	
+{
+	String  SearchString[20]       ;// What to look for
+	Integer Sensitive              ;// Search Case Sensitive?
+	String  Suggestion[20]         ;// Correction characters          	
+	Integer Action                 ;// Replace or Insert ????????
+	Integer ActionPosistion        ;// Position in String to Replace or Insert
+	Integer Offset                 ;// Number of Characters the Action will change original data length          
+	Integer InstancePosition[140]  ;// NOT in XML, Position of correction in original data, tracks each change this module makes in original data                               
+}                                  ;// 
+Dynamic strcSuggest Suggest[1]     ;//  
+
+--- Function 
+
+	Suggest[iItem].SearchString   =      fXML_Element_Parse(sItem, "SearchString")   ;//String
+	Suggest[iItem].Sensitive      = AtoI(fXML_Element_Parse(sItem, "Sensitive"))     ;//Integer
+	Suggest[iItem].Correction     =      fXML_Element_Parse(sItem, "Correction")     ;//String
+	Suggest[iItem].Action         = AtoI(fXML_Element_Parse(sItem, "Action"))        ;//Integer
+	Suggest[iItem].ActionPosition = AtoI(fXML_Element_Parse(sItem, "ActionPosition"));//Integer
+	Suggest[iItem].Offset         = AtoI(fXML_Element_Parse(sItem, "Offset"))        ;//Integer
+					
+*///------------------------------------------------------------------------------------->|
+
+// Compiler Directives ____________________________________________________________________
+//#SYMBOL_NAME           "Smart Keyboard Processor v1.0.2" // Changed to "Smart Text Processor v1.0.2" - This doesn't have to be used with a keyboard
+#CATEGORY                          "10" // Serial//#DEFINE_CONSTANT       cDirectory  "\\NVRAM\\" // v1.0.3 Changed this to a parameter
+#DEFINE_CONSTANT       cCorrection "KeyboardCorrectionDriver*.**.xml"
+#DEFINE_CONSTANT       cMaxChars   140
+#OUTPUT_SHIFT                      2
+#DEFAULT_VOLATILE
+#ENABLE_STACK_CHECKING
+#ENABLE_TRACE
+#ENABLE_DYNAMIC
+
+// F1 Help ________________________________________________________________________________
+#HELP_BEGIN
+  
+#HELP_END
+
+//Input - Outputs _________________________________________________________________________
+Digital_Input  _SKIP_                     ;//
+Digital_Input  Enable                     ;//v1.0.5 
+Digital_Input  Read_Driver                ;//
+Digital_Input  _SKIP_                     ;// 
+STRING_INPUT   In[140]                    ;//  
+
+Digital_Output Read_Busy_FB               ;// Used to Semphor just the Read logic
+Digital_Output _SKIP_                     ;// 
+STRING_OUTPUT  Out                        ;// 
+String_Output  _SKIP_                     ;// 
+String_Output  Auto_Correction_File       ;// 
+String_Output  Auto_Correction_File_Date  ;//
+String_Output  Auto_Correction_File_Time  ;// 
+String_Output  Auto_Correction_File_Size  ;// 
+
+// Variables ______________________________________________________________________________
+INTEGER   g_iPosition[254][46]            ;// 
+STRING    g_sLastText[140]                ;// 
+Integer   g_iItemCount                    ;// Number of SearchStrings in XML file 
+
+Structure strcCorrect											
+{
+	String  SearchString[20]              ;// What to look for
+	Integer Sensitive                     ;// Search Case Sensitive?
+	String  Correction[20]                ;// Correction characters          	
+	String  Action[7]                     ;// Replace, Insert, Prefix, Suffix
+	Signed_Integer ActionPosition         ;// Position in String to Replace or Insert
+	Signed_Integer Offset                 ;// Number of Characters the Action will change original data length          
+//	Signed_Integer InstancePosition[140]  ;// NOT in XML, Position of correction in original data, tracks each change this module makes in original data                               
+}                                         ;//                           
+Dynamic strcCorrect Correct[50]           ;// I CAN NOT FIGURE OUT HOW TO RESIZE A STRUCTURE --- HELP FILES STATE YOU CAN BUT THE SYNTAX ERRORS OUT
+
+// Parameters _____________________________________________________________________________
+String_Parameter Directory[9]             ;// 
+
+#Begin_Parameter_Properties Directory
+	PropDefaultUnit = unitString          ;// 
+#End_Parameter_Properties
+// Functions ______________________________________________________________________________
+
+String_Function fCorrect(String sData)
+{
+	Integer o, i, iPosition, iLength, iCorrection ;
+	String sNewText[254]        ;
+	
+	sNewText    = sData         ;
+	iPosition   = 0             ;
+	iCorrection = 0             ;		 
+	iLength     = Len(sNewText) ;
+	
+	For(o = 1 To g_iItemCount Step 1) //check all errorDATA of characters to correct
+	{
+		For(i = 1 To iLength Step 1) //Find all Instances of the current sequence
+		{
+			If(Correct[o].Sensitive)//Search is Case Sensitive
+			{
+				If(Find(Correct[o].SearchString, sNewText, i)) // Found one
+				{
+					iPosition = Find(Correct[o].SearchString, sNewText, i) ;//Get position of correction
+				}
+			}
+			Else//Search is Case In-Sensitive
+			{
+				If(Find(Upper(Correct[o].SearchString), Upper(sNewText), i)) // Found one
+				{
+					iPosition = Find(Upper(Correct[o].SearchString), Upper(sNewText), i) ;//FindNoCase Does not work, using function UPPER
+				}
+			}
+			If(iPosition)
+			{
+Trace("--->Correct Function Found Correction");
+				iCorrection = 1  ;										                					
+				If(Correct[o].Action = "Replace")
+				{// Still need to test replacing multiple characters
+Trace("--->Correct Function Replace, iPosition=%d", iPosition);																
+					SetString(Correct[o].Correction, iPosition - 1 + Correct[o].ActionPosition, sNewText) ;
+				}
+				Else If(Correct[o].Action = "Insert")
+				{   // Still need to test inserting multiple characters					
+Trace("--->Correct Function Insert, iPosition=%d", iPosition);				
+					sNewText = Left(sNewText, iPosition + Correct[o].ActionPosition - 1) + Correct[o].Correction  + 
+							   Right(sNewText, Len(sNewText) - (iPosition + Correct[o].ActionPosition - 1))       ;
+				}
+				Else If(Correct[o].Action = "Prefix")
+				{// Broke - Need position tracking
+Trace("--->Correct Function Prefix, iPosition=%d", iPosition);				
+					sNewText  = Left(sNewText, iPosition - 1) + Correct[o].Correction + Right(sNewText, Len(sNewText) - (iPosition - 1));
+				}
+				Else If(Correct[o].Action = "Suffix")
+				{// Broke - Need position tracking
+Trace("--->Correct Function Suffix, iPosition=%d", iPosition);                
+                	sNewText = Left(sNewText, (iPosition - 1) + Len(Correct[o].SearchString)) + Correct[o].Correction + 
+                			   Right(sNewText, Len(sNewText) - ((iPosition - 1) + Len(Correct[o].SearchString)))      ;
+				}							
+				Else If (Correct[o].Action = "Upper"                                         && // Check the action for Upper Action
+				 Len     (sNewText) >= ((iPosition - 1) + Correct[o].ActionPosition )        && // Make sure action position is in the data 
+				 Byte    (sNewText   , ( iPosition - 1) + Correct[o].ActionPosition ) > 96   && // lower case character a=97
+				 Byte    (sNewText   , ( iPosition - 1) + Correct[o].ActionPosition ) < 123   ) // lower case character z=122
+				{					 
+Trace("--->Correct Function Upper, iPosition=%d", iPosition);					
+					sNewText = Left (sNewText,                  (iPosition - 1) + (Correct[o].ActionPosition - 1)) + 
+							   Upper(Chr(Byte(     sNewText,    (iPosition - 1) +  Correct[o].ActionPosition)   )) +
+							   Right(sNewText, Len(sNewText) - ((iPosition - 1) +  Correct[o].ActionPosition)    ) ;							   
+				}
+				
+				iLength  = Len(sNewText) ;														
+				i = iPosition + 1 ; // Next loop starts looking after this instance of the error 
+				iPosition = 0 ;  				
+			}// Close If(iPosition)	- Correction Logic
+			Else
+			{
+				Break ;// Stop Inner Loop and move onto next item... this item element did not return a match
+			}		 
+		}// Inner Correction Check For Loop
+	}// Outer For Loop   check against each item element
+	If(iCorrection)
+		Return(sNewText) ;// Correction has been made return the new text
+	Else
+		Return(sData)    ;// No correction return the original data
+}// Function
+
+String_Function fXML_Element_Parse(String Data, String Tag)
+{
+	String  sStart[22], sEnd[23] ;
+	String  sReturn[254]         ;
+	Integer iStart,     iEnd     ;
+		
+	sStart = "<"  + Tag + ">"                  ;
+	sEnd   = "</" + Tag + ">"                  ; 
+	iStart = Find(sStart, Data) + Len(sStart)  ;
+	iEnd   = Find(sEnd, Data)                  ;
+	
+	sReturn = Mid(Data, iStart, iEnd - iStart) ;
+	
+	Return(sReturn)                            ;
+}
+
+Function fDriver_Retrieve()
+{
+	Signed_Integer iFind, iHandle, iBytes           ;
+	String sPath[32], sDriverData[65534]            ;
+	String sItem[510], sInteger[6]                  ;
+	Integer iItem, iSize, x                         ;
+	File_Info l_FileInfo                            ;
+
+Trace("--->Smart Keyboard Driver Read Function") ;	
+	iFind = 1                                       ;
+    
+	sPath = "\\" + Directory + "\\" + cCorrection   ;
+	
+	StartFileOperations()                           ;	
+	
+	iFind = FindFirst(sPath , l_FileInfo)           ;
+	FindClose()                                     ;
+	If(iFind = 0)
+	{
+		sPath = Directory + l_FileInfo.Name                           ;
+		iSize = LowWord(l_FileInfo.lsize)                             ;
+		iHandle = FileOpen(sPath, _O_RDonly | _O_Binary )             ; 
+		iBytes = FileRead(iHandle, sDriverData, iSize)                ;
+		If(iBytes)
+		{
+			Auto_Correction_File      = l_FileInfo.NAME               ;
+			Auto_Correction_File_Date = FileDate(l_FileInfo, 1)       ;							
+			Auto_Correction_File_Time = FileTime(l_FileInfo)          ;
+			Auto_Correction_File_Size = ItoA(FileLength(iHandle))     ;
+							
+			FileClose(iHandle)                                        ;
+			EndFileOperations()                                       ;
+Trace("------>Found File : %s", sPath) ;
+			If(Find("<KeyboardCorrectionDriver>", sDriverData) && Find("</KeyboardCorrectionDriver>", sDriverData))
+			{
+//v1.0.1		g_iItemCount = AtoI(Mid(sDriverData, Find("Correction Count=", sDriverData), 24))  ;// This line will only work if the <Items> Element 
+/*v1.0.2*/		If(Find("</Item>", sDriverData, Find("<Correction>",sDriverData)))
+				{
+					g_iItemCount = 0                                  ;
+					x = Find("<Correction>",sDriverData)              ;
+					While(Find("</Item>", sDriverData, x))
+					{
+						x = Find("</Item>", sDriverData, x)           ; 
+Trace("--------->Position of </Item> : %d", x)                        ;					
+						x = x + 8                                     ;// Extra character to exclude possible empty elements
+						g_iItemCount = g_iItemCount + 1               ;
+							
+					}
+				}// v1.0.2 Item Count Close
+Trace("------>Item Count =%d", g_iItemCount);												  
+
+//				ReSizeArray(Correct, , g_iItemCount) ;// Resize the structure for all items in the XML document //!!!!!!!!!!!!! NEED THIS !!!!!!!!!!!!!
+				
+				For(iItem = 1 To g_iItemCount Step 1)
+				{
+					sItem = Remove("</Item>", sDriverData);
+					Correct[iItem].SearchString   =      fXML_Element_Parse(sItem, "SearchString")   ;// String
+					Correct[iItem].Sensitive      = AtoI(fXML_Element_Parse(sItem, "Sensitive"))     ;// Integer
+					Correct[iItem].Correction     =      fXML_Element_Parse(sItem, "Correct")        ;// String
+					Correct[iItem].Action         =      fXML_Element_Parse(sItem, "Action")         ;// String					
+//					Correct[iItem].ActionPosition = AtoI(fXML_Element_Parse(sItem, "ActionPosition"));// Integer - v1.0.1
+//					Correct[iItem].Offset         = AtoI(fXML_Element_Parse(sItem, "Offset"))        ;// Integer - v1.0.1
+										
+					sInteger                      =      fXML_Element_Parse(sItem, "ActionPosition") ;// Signed_Integer v1.0.2
+					If(Find("-", sInteger))
+						Correct[iItem].ActionPosition = 0 - AtoI(sInteger)                           ;
+					Else
+                        Correct[iItem].ActionPosition = AtoI(sInteger)                               ;
+                        
+                    sInteger                      =      fXML_Element_Parse(sItem, "Offset")         ;// Signed_Integer v1.0.2
+					If(Find("-", sInteger))
+						Correct[iItem].Offset = 0 - AtoI(sInteger)                                   ;
+					Else
+                        Correct[iItem].Offset = AtoI(sInteger)                                       ;
+                        
+                        
+Trace("------>Keyboard Driver Parse Start");
+Trace("--------->Item[%d] Search String =%s", iItem, Correct[iItem].SearchString);
+Trace("--------->Item[%d] Sensitivity =%d", iItem, Correct[iItem].Sensitive);
+Trace("--------->Item[%d] Correct =%s", iItem, Correct[iItem].Correction);
+Trace("--------->Item[%d] Action =%s", iItem, Correct[iItem].Action);
+Trace("--------->Item[%d] Action Position =%d", iItem, Correct[iItem].ActionPosition);
+Trace("--------->Item[%d] Offset =%d", iItem, Correct[iItem].Offset);
+Trace("------>Keyboard Driver Parse End");					
+				}//For Loop Close - XML Parse
+			}//If Close - XML Parse all data armor	
+		}//If Close - File Read data armor		
+		Else
+		{
+			FileClose(iHandle)                                          ;
+			EndFileOperations()                                         ;
+			GenerateUserError("Keyboard Driver Read Error : %s", sPath) ;
+Trace("------>Keyboard Driver Read Error : %s", sPath) ;			
+		}
+	}//If Close - File found armor
+	Else
+	{
+		FileClose(iHandle)                                         ;
+		EndFileOperations()                                        ;
+		GenerateUserError("Keyboard Driver Not Found : %s", sPath) ;
+Trace("--->Keyboard Driver Not Found : %s", sPath) ;			
+	}
+}//Function Close
+
+//Events __________________________________________________________________________________
+Push Read_Driver
+{
+	If(Read_Busy_FB = OFF && Enable)
+	{
+		Read_Busy_FB = ON   ;
+		fDriver_Retrieve()  ;
+		Read_Busy_FB = OFF  ;
+	}	
+}
+
+CHANGE In 
+{
+	Integer iLength, o, i ;
+	
+	iLength = Len(In) ;
+	
+	If(In <> g_sLastText)//Make sure it is not the exact same text to process
+	{	
+		If(Len(In) > 1)//minimum 2 chars for correction processing
+		{
+			If(Len(In) <> Len(g_sLastText))// make sure there is a new character to process
+			{
+				If(Left(In, Len(In) - 1) = Left(g_sLastText, Len(In) - 1)) //editting same text with new character at the end
+	        	{
+Trace("--->Process Same Text but New character at the end: %s", In) ;
+	        		g_sLastText = fCorrect(In);
+		        	Out = g_sLastText ;
+	    	    	TerminateEvent ;
+	        	}
+	        	Else
+	        	{
+Trace("--->Process New Text of different Length, Possible text inserted : %s", In) ; //editting new text, possibly something new inserted or 
+ 
+					//causes a bug when using the cursor to edit previous characters but "same" text
+					g_sLastText = In ;
+					TerminateEvent ;
+	/*				For(o = 1 To g_iItemCount Step 1)
+					{
+			//			SetArray(Correct[o].InstancePosition, 0);      //Compiler won't let me do this
+						For(i = 0 To cMaxChars Step 1)
+						{
+							Correct[o].InstancePosition[i] = 0 ;				
+						}
+					}
+	*/
+				}
+			}
+			Else// New text but same Len as old text
+			{
+Trace("--->Process New Text But Same Length as Old text : %s", In) ;
+				g_sLastText = In ;
+				TerminateEvent ;
+			}
+		}
+		Else If(Len(In) = 1 && Byte(In, 1) < 122 && Byte(In, 1) > 97) //New Text Len = 1
+		{
+Trace("--->Process New Text of Length 1, Upper Routine : %s", In) ;
+			
+			g_sLastText = Upper(In) ;
+			Out = g_sLastText ;
+			TerminateEvent ;
+	/*
+			For(o = 1 To g_iItemCount Step 1)
+			{
+		//		SetArray(Correct[o].InstancePosition, 0);		//Compiler won't let me do this
+				For(i = 0 To cMaxChars Step 1)
+				{
+					Correct[o].InstancePosition[i] = 0	;
+		
+				}
+			}
+	*/
+		}
+		Else // New Text Len = 0
+		{
+Trace("--->New Text of Length 0") ;			
+		}
+	}
+}
+
+
+
+//On StartUp ______________________________________________________________________________
+Function Main()
+{
+	Waitforinitializationcomplete() ;
+	If(Enable) // v1.0.5
+		fDriver_Retrieve() ;
+
+}
+
+
+

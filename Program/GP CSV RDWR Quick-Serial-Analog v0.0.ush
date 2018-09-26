@@ -1,0 +1,659 @@
+[BEGIN]
+  Version=1
+[END]
+[BEGIN]
+  ObjTp=FSgntr
+  Sgntr=UserSPlus
+  RelVrs=1
+  IntStrVrs=1
+  SPlusVrs=4.04.01
+  CrossCplrVrs=1.3
+[END]
+[BEGIN]
+  ObjTp=Hd
+  Cmn1=Use MS Excel to edit. Must be of .csv format.\\\\2 columns 16 rows\\
+  Cmn2=\\NO commas, single quotes, double quotes or carriage returns allowed||1
+  Cmn3=in the cells.\\\\User must keep data in column A and B rows 1 -||1
+  Cmn4=16.\\\\Max of 32 characters per cell.\\\\The parameters of this||1
+  Cmn5=module are used in creating a file if one does not exist.\\
+[END]
+[BEGIN]
+  ObjTp=Symbol
+  Exclusions=1,19,20,21,88,89,167,168,179,213,214,215,216,217,225,226,248,249,266,267,310,718,756,854,
+  Exclusions_CDS=5
+  Inclusions_CDS=6
+  Name=GP CSV RDWR Quick-Serial-Analog v0.0
+  SmplCName=GP CSV RDWR Quick-Serial-Analog v0.0.usp
+  Code=1
+  SysRev5=4.006
+  SMWRev=3.00.00
+  InputCue1=Read
+  InputSigType1=Digital
+  InputCue2=Edit_Save
+  InputSigType2=Digital
+  OutputCue1=File_Busy_FB
+  OutputSigType1=Digital
+  InputList2Cue1=Edit_Row_Index
+  InputList2SigType1=Analog
+  InputList2Cue2=Edit_Cell_A
+  InputList2SigType2=Serial
+  InputList2Cue3=Edit_Cell_B
+  InputList2SigType3=Analog
+  OutputList2Cue1=File_Time_Stamp_FB
+  OutputList2SigType1=Serial
+  OutputList2Cue2=Edit_Selected_Cell_A_FB
+  OutputList2SigType2=Serial
+  OutputList2Cue3=Edit_Selected_Cell_B_FB
+  OutputList2SigType3=Analog
+  OutputList2Cue4=[~UNUSED~]
+  OutputList2SigType4=Serial
+  OutputList2Cue5=Column_A_Row[1]
+  OutputList2SigType5=Serial
+  OutputList2Cue6=Column_A_Row[2]
+  OutputList2SigType6=Serial
+  OutputList2Cue7=Column_A_Row[3]
+  OutputList2SigType7=Serial
+  OutputList2Cue8=Column_A_Row[4]
+  OutputList2SigType8=Serial
+  OutputList2Cue9=Column_A_Row[5]
+  OutputList2SigType9=Serial
+  OutputList2Cue10=Column_A_Row[6]
+  OutputList2SigType10=Serial
+  OutputList2Cue11=Column_A_Row[7]
+  OutputList2SigType11=Serial
+  OutputList2Cue12=Column_A_Row[8]
+  OutputList2SigType12=Serial
+  OutputList2Cue13=Column_A_Row[9]
+  OutputList2SigType13=Serial
+  OutputList2Cue14=Column_A_Row[10]
+  OutputList2SigType14=Serial
+  OutputList2Cue15=Column_A_Row[11]
+  OutputList2SigType15=Serial
+  OutputList2Cue16=Column_A_Row[12]
+  OutputList2SigType16=Serial
+  OutputList2Cue17=Column_A_Row[13]
+  OutputList2SigType17=Serial
+  OutputList2Cue18=Column_A_Row[14]
+  OutputList2SigType18=Serial
+  OutputList2Cue19=Column_A_Row[15]
+  OutputList2SigType19=Serial
+  OutputList2Cue20=Column_A_Row[16]
+  OutputList2SigType20=Serial
+  OutputList2Cue21=Column_B_Row[#]
+  OutputList2SigType21=Analog
+  ParamCue1=[Reference Name]
+  ParamCue2=PathFileExt
+  ParamSigType2=String
+  ParamCue3=SKIP[1]
+  ParamSigType3=Constant
+  ParamCue4=SKIP[2]
+  ParamSigType4=Constant
+  ParamCue5=SKIP[3]
+  ParamSigType5=Constant
+  ParamCue6=SKIP[4]
+  ParamSigType6=Constant
+  ParamCue7=Default_Column_A_Row[1]
+  ParamSigType7=String
+  ParamCue8=Default_Column_A_Row[2]
+  ParamSigType8=String
+  ParamCue9=Default_Column_A_Row[3]
+  ParamSigType9=String
+  ParamCue10=Default_Column_A_Row[4]
+  ParamSigType10=String
+  ParamCue11=Default_Column_A_Row[5]
+  ParamSigType11=String
+  ParamCue12=Default_Column_A_Row[6]
+  ParamSigType12=String
+  ParamCue13=Default_Column_A_Row[7]
+  ParamSigType13=String
+  ParamCue14=Default_Column_A_Row[8]
+  ParamSigType14=String
+  ParamCue15=Default_Column_A_Row[9]
+  ParamSigType15=String
+  ParamCue16=Default_Column_A_Row[10]
+  ParamSigType16=String
+  ParamCue17=Default_Column_A_Row[11]
+  ParamSigType17=String
+  ParamCue18=Default_Column_A_Row[12]
+  ParamSigType18=String
+  ParamCue19=Default_Column_A_Row[13]
+  ParamSigType19=String
+  ParamCue20=Default_Column_A_Row[14]
+  ParamSigType20=String
+  ParamCue21=Default_Column_A_Row[15]
+  ParamSigType21=String
+  ParamCue22=Default_Column_A_Row[16]
+  ParamSigType22=String
+  ParamCue23=Default_Column_B_Row[1]
+  ParamSigType23=Constant
+  ParamCue24=Default_Column_B_Row[2]
+  ParamSigType24=Constant
+  ParamCue25=Default_Column_B_Row[3]
+  ParamSigType25=Constant
+  ParamCue26=Default_Column_B_Row[4]
+  ParamSigType26=Constant
+  ParamCue27=Default_Column_B_Row[5]
+  ParamSigType27=Constant
+  ParamCue28=Default_Column_B_Row[6]
+  ParamSigType28=Constant
+  ParamCue29=Default_Column_B_Row[7]
+  ParamSigType29=Constant
+  ParamCue30=Default_Column_B_Row[8]
+  ParamSigType30=Constant
+  ParamCue31=Default_Column_B_Row[9]
+  ParamSigType31=Constant
+  ParamCue32=Default_Column_B_Row[10]
+  ParamSigType32=Constant
+  ParamCue33=Default_Column_B_Row[11]
+  ParamSigType33=Constant
+  ParamCue34=Default_Column_B_Row[12]
+  ParamSigType34=Constant
+  ParamCue35=Default_Column_B_Row[13]
+  ParamSigType35=Constant
+  ParamCue36=Default_Column_B_Row[14]
+  ParamSigType36=Constant
+  ParamCue37=Default_Column_B_Row[15]
+  ParamSigType37=Constant
+  ParamCue38=Default_Column_B_Row[16]
+  ParamSigType38=Constant
+  MinVariableInputs=2
+  MaxVariableInputs=2
+  MinVariableInputsList2=3
+  MaxVariableInputsList2=3
+  MinVariableOutputs=1
+  MaxVariableOutputs=1
+  MinVariableOutputsList2=36
+  MaxVariableOutputsList2=36
+  MinVariableParams=37
+  MaxVariableParams=37
+  Expand=expand_separately
+  Expand2=expand_separately
+  ProgramTree=Logic
+  SymbolTree=46
+  UserSymTreeName=CSV
+  Hint=
+  PdfHelp=
+  HelpID= 
+  Render=4
+  Smpl-C=16
+  CompilerCode=-48
+  CompilerParamCode=27
+  CompilerParamCode5=14
+  NumFixedParams=1
+  Pp1=1
+  Pp2=2
+  Pp3=3
+  Pp4=4
+  Pp5=5
+  Pp6=6
+  Pp7=7
+  Pp8=8
+  Pp9=9
+  Pp10=10
+  Pp11=11
+  Pp12=12
+  Pp13=13
+  Pp14=14
+  Pp15=15
+  Pp16=16
+  Pp17=17
+  Pp18=18
+  Pp19=19
+  Pp20=20
+  Pp21=21
+  Pp22=22
+  Pp23=23
+  Pp24=24
+  Pp25=25
+  Pp26=26
+  Pp27=27
+  Pp28=28
+  Pp29=29
+  Pp30=30
+  Pp31=31
+  Pp32=32
+  Pp33=33
+  Pp34=34
+  Pp35=35
+  Pp36=36
+  Pp37=37
+  Pp38=38
+  MPp=38
+  NVStorage=10
+  ParamSigType1=String
+  SmplCInputCue1=o#
+  SmplCOutputCue1=i#
+  SmplCInputList2Cue1=an#
+  SmplCOutputList2Cue1=ai#
+  SPlus2CompiledName=S2_GP_CSV_RDWR_Quick_Serial_Analog_v0_0
+  SymJam=NonExclusive
+  FileName=GP CSV RDWR Quick-Serial-Analog v0.0.ush
+  SIMPLPlusModuleEncoding=0
+  clz1=mediaTune
+  clz2=DateTimeClass
+  clz3=stadiumVision
+[END]
+[BEGIN]
+  ObjTp=Dp
+  H=1
+  Tp=1
+  NoS=False
+[END]
+[BEGIN]
+  ObjTp=Dp
+  H=2
+  Tp=1
+  SD=
+  HD=True
+  DV=\\NVRAM\\Data.csv
+  NoS=False
+  VVS=0
+[END]
+[BEGIN]
+  ObjTp=Dp
+  H=3
+  Tp=1
+  SD=Not Used... In place align params with outputs
+  HD=True
+  DV=0d
+  Sgn=0
+  Lng=False
+  NF=1
+  NoS=True
+  DNF=1
+  VVS=0
+[END]
+[BEGIN]
+  ObjTp=Dp
+  H=4
+  Tp=1
+  SD=Not Used... In place align params with outputs
+  HD=True
+  DV=0d
+  Sgn=0
+  Lng=False
+  NF=1
+  NoS=True
+  DNF=1
+  VVS=0
+[END]
+[BEGIN]
+  ObjTp=Dp
+  H=5
+  Tp=1
+  SD=Not Used... In place align params with outputs
+  HD=True
+  DV=0d
+  Sgn=0
+  Lng=False
+  NF=1
+  NoS=True
+  DNF=1
+  VVS=0
+[END]
+[BEGIN]
+  ObjTp=Dp
+  H=6
+  Tp=1
+  SD=Not Used... In place align params with outputs
+  HD=True
+  DV=0d
+  Sgn=0
+  Lng=False
+  NF=1
+  NoS=True
+  DNF=1
+  VVS=0
+[END]
+[BEGIN]
+  ObjTp=Dp
+  H=7
+  Tp=1
+  SD=
+  HD=False
+  NoS=False
+  VVS=0
+[END]
+[BEGIN]
+  ObjTp=Dp
+  H=8
+  Tp=1
+  SD=
+  HD=False
+  NoS=False
+  VVS=0
+[END]
+[BEGIN]
+  ObjTp=Dp
+  H=9
+  Tp=1
+  SD=
+  HD=False
+  NoS=False
+  VVS=0
+[END]
+[BEGIN]
+  ObjTp=Dp
+  H=10
+  Tp=1
+  SD=
+  HD=False
+  NoS=False
+  VVS=0
+[END]
+[BEGIN]
+  ObjTp=Dp
+  H=11
+  Tp=1
+  SD=
+  HD=False
+  NoS=False
+  VVS=0
+[END]
+[BEGIN]
+  ObjTp=Dp
+  H=12
+  Tp=1
+  SD=
+  HD=False
+  NoS=False
+  VVS=0
+[END]
+[BEGIN]
+  ObjTp=Dp
+  H=13
+  Tp=1
+  SD=
+  HD=False
+  NoS=False
+  VVS=0
+[END]
+[BEGIN]
+  ObjTp=Dp
+  H=14
+  Tp=1
+  SD=
+  HD=False
+  NoS=False
+  VVS=0
+[END]
+[BEGIN]
+  ObjTp=Dp
+  H=15
+  Tp=1
+  SD=
+  HD=False
+  NoS=False
+  VVS=0
+[END]
+[BEGIN]
+  ObjTp=Dp
+  H=16
+  Tp=1
+  SD=
+  HD=False
+  NoS=False
+  VVS=0
+[END]
+[BEGIN]
+  ObjTp=Dp
+  H=17
+  Tp=1
+  SD=
+  HD=False
+  NoS=False
+  VVS=0
+[END]
+[BEGIN]
+  ObjTp=Dp
+  H=18
+  Tp=1
+  SD=
+  HD=False
+  NoS=False
+  VVS=0
+[END]
+[BEGIN]
+  ObjTp=Dp
+  H=19
+  Tp=1
+  SD=
+  HD=False
+  NoS=False
+  VVS=0
+[END]
+[BEGIN]
+  ObjTp=Dp
+  H=20
+  Tp=1
+  SD=
+  HD=False
+  NoS=False
+  VVS=0
+[END]
+[BEGIN]
+  ObjTp=Dp
+  H=21
+  Tp=1
+  SD=
+  HD=False
+  NoS=False
+  VVS=0
+[END]
+[BEGIN]
+  ObjTp=Dp
+  H=22
+  Tp=1
+  SD=
+  HD=False
+  NoS=False
+  VVS=0
+[END]
+[BEGIN]
+  ObjTp=Dp
+  H=23
+  Tp=1
+  SD=
+  HD=False
+  Sgn=0
+  Lng=False
+  NF=1
+  NoS=True
+  DNF=1
+  VVS=0
+[END]
+[BEGIN]
+  ObjTp=Dp
+  H=24
+  Tp=1
+  SD=
+  HD=False
+  Sgn=0
+  Lng=False
+  NF=1
+  NoS=True
+  DNF=1
+  VVS=0
+[END]
+[BEGIN]
+  ObjTp=Dp
+  H=25
+  Tp=1
+  SD=
+  HD=False
+  Sgn=0
+  Lng=False
+  NF=1
+  NoS=True
+  DNF=1
+  VVS=0
+[END]
+[BEGIN]
+  ObjTp=Dp
+  H=26
+  Tp=1
+  SD=
+  HD=False
+  Sgn=0
+  Lng=False
+  NF=1
+  NoS=True
+  DNF=1
+  VVS=0
+[END]
+[BEGIN]
+  ObjTp=Dp
+  H=27
+  Tp=1
+  SD=
+  HD=False
+  Sgn=0
+  Lng=False
+  NF=1
+  NoS=True
+  DNF=1
+  VVS=0
+[END]
+[BEGIN]
+  ObjTp=Dp
+  H=28
+  Tp=1
+  SD=
+  HD=False
+  Sgn=0
+  Lng=False
+  NF=1
+  NoS=True
+  DNF=1
+  VVS=0
+[END]
+[BEGIN]
+  ObjTp=Dp
+  H=29
+  Tp=1
+  SD=
+  HD=False
+  Sgn=0
+  Lng=False
+  NF=1
+  NoS=True
+  DNF=1
+  VVS=0
+[END]
+[BEGIN]
+  ObjTp=Dp
+  H=30
+  Tp=1
+  SD=
+  HD=False
+  Sgn=0
+  Lng=False
+  NF=1
+  NoS=True
+  DNF=1
+  VVS=0
+[END]
+[BEGIN]
+  ObjTp=Dp
+  H=31
+  Tp=1
+  SD=
+  HD=False
+  Sgn=0
+  Lng=False
+  NF=1
+  NoS=True
+  DNF=1
+  VVS=0
+[END]
+[BEGIN]
+  ObjTp=Dp
+  H=32
+  Tp=1
+  SD=
+  HD=False
+  Sgn=0
+  Lng=False
+  NF=1
+  NoS=True
+  DNF=1
+  VVS=0
+[END]
+[BEGIN]
+  ObjTp=Dp
+  H=33
+  Tp=1
+  SD=
+  HD=False
+  Sgn=0
+  Lng=False
+  NF=1
+  NoS=True
+  DNF=1
+  VVS=0
+[END]
+[BEGIN]
+  ObjTp=Dp
+  H=34
+  Tp=1
+  SD=
+  HD=False
+  Sgn=0
+  Lng=False
+  NF=1
+  NoS=True
+  DNF=1
+  VVS=0
+[END]
+[BEGIN]
+  ObjTp=Dp
+  H=35
+  Tp=1
+  SD=
+  HD=False
+  Sgn=0
+  Lng=False
+  NF=1
+  NoS=True
+  DNF=1
+  VVS=0
+[END]
+[BEGIN]
+  ObjTp=Dp
+  H=36
+  Tp=1
+  SD=
+  HD=False
+  Sgn=0
+  Lng=False
+  NF=1
+  NoS=True
+  DNF=1
+  VVS=0
+[END]
+[BEGIN]
+  ObjTp=Dp
+  H=37
+  Tp=1
+  SD=
+  HD=False
+  Sgn=0
+  Lng=False
+  NF=1
+  NoS=True
+  DNF=1
+  VVS=0
+[END]
+[BEGIN]
+  ObjTp=Dp
+  H=38
+  Tp=1
+  SD=
+  HD=False
+  Sgn=0
+  Lng=False
+  NF=1
+  NoS=True
+  DNF=1
+  VVS=0
+[END]

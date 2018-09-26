@@ -1,0 +1,152 @@
+//GreenPoint TDI - RBP 
+
+/* _____________________ Development Notes ___________________________________________________________________
+
+
+/* _____________________ Development Notes _________________________________________________________________*/
+
+// ___________________________________________________________________________________________________________ Module Compile Time Behavior
+#CATEGORY          "46" "Direct Socket" // Custom
+#OUTPUT_SHIFT       2
+#ENCODING_ASCII
+//#ENCODING_UTF16
+#DEFAULT_VOLATILE
+#ENABLE_STACK_CHECKING
+#ENABLE_TRACE
+
+//_____________________________________________________________________________________________________________ Help F1
+#HINT              "TCP/IP CLient that can dynamically change the port and ip address"
+#HELP_BEGIN
+GreenPoint TDI   www.greenpointtdi.com   
+   TCP/IP CLient that can dynamically change the port and ip address 
+   
+   TX$ is limited to 255 characters per transmit.
+   
+   RX$ puts out the the return data in 50 character chunks.
+   
+   Port = 0~65535 port to connect the socket on.
+   IP   = IP address to connect the socket on.
+   
+   F1 a TCP/IP Client symbol in Simpl for the rest of the In-Out definitions.
+   
+   
+#HELP_END
+
+//_____________________________________________________________________________________________________________ Constants
+
+//_____________________________________________________________________________________________________________ Simpl Input - Output
+DIGITAL_INPUT  _SKIP_, _SKIP_            ;
+DIGITAL_INPUT  Connect                   ;
+Analog_Input   _SKIP_ ;
+ANALOG_INPUT   Port                      ;
+STRING_INPUT   IP[15]                    ;
+STRING_INPUT   TX$[1024]                  ;
+
+DIGITAL_OUTPUT Connect_F                 ; 
+ANALOG_OUTPUT  Status                    ;
+ANALOG_OUTPUT  Port_FB ;
+STRING_OUTPUT  IP_FB                     ;
+STRING_OUTPUT  RX$                       ;
+
+//_____________________________________________________________________________________________________________ Sockets
+TCP_CLIENT Client[65000]                  ;
+
+// ____________________________________________________________________________________________________________ Parameters
+INTEGER_PARAMETER Default_Port           ;
+#BEGIN_PARAMETER_PROPERTIES Default_Port
+	propValidUnits   = unitDecimal       ;
+    propDefaultUnit  = unitDecimal       ;
+	propBounds       = 1d, 65535d        ;
+	propDefaultValue = 12302d            ;
+#END_PARAMETER_PROPERTIES
+
+STRING_PARAMETER  Default_IP[15]         ;
+#BEGIN_PARAMETER_PROPERTIES Default_IP
+	propValidUnits   = unitString        ;
+    propDefaultUnit  = unitString        ;
+	propDefaultValue = "10.254.2.51"     ;
+#END_PARAMETER_PROPERTIES
+
+// _____________________________________________________________________________________________________________ Global Varibles
+Integer g_iPort                          ;
+String  g_sIP[15]                        ;
+
+// _____________________________________________________________________________________________________________ Functions
+
+Function fConnect()
+{
+	IF(len(g_sIP) && (g_sIP != "0"))
+	{SocketConnectClient   (Client, g_sIP, g_iPort, 1) ;}
+}
+
+// _____________________________________________________________________________________________________________ Simpl Events
+
+
+Push    Connect { 
+fConnect();
+}
+Release Connect {
+IF(len(g_sIP)){ SocketDisconnectClient(Client                   ) ;}
+}
+Change  TX$ 
+{
+	If(Connect_F&&len(g_sIP))
+	{
+		SocketSend(Client, TX$)                                                                                 ;
+	}	
+}
+Change  Port
+{
+	If(Port)
+	{	
+		g_iPort = Port                                                                                          ;
+		Port_FB = g_iPort ;
+		SocketDisconnectClient(Client)                                                                          ;
+		If(Connect)
+		{
+			fConnect()                                                      ;
+		}
+	}
+}
+Change  IP
+{
+	If(Len(IP))
+	{
+		g_sIP   = IP                                                                                            ;
+		IP_FB = g_sIP ;
+		SocketDisconnectClient(Client)                                                                          ;
+		If(Connect)
+		{
+			fConnect()                                                      ;
+		}  		
+	}
+}
+
+// _____________________________________________________________________________________________________________ Socket Events
+SOCKETCONNECT    Client { Connect_F = ON  ;                                                                     }
+SOCKETDISCONNECT Client { Connect_F = OFF ;                                                                     }
+SOCKETSTATUS     CLient { Status = Client.SocketStatus ;                                                        }
+SOCKETRECEIVE    Client
+{		
+	RX$ = RemoveByLength(Len(Client.SocketRxBuf), Client.SocketRxBuf) ;
+	//RX$ = Client.SocketRxBuf ; ClearBuffer(Client.SocketRxBuf) ;
+	/*
+	While(Len(Client.SocketRxBuf))
+	{
+		If(Len(Client.SocketRxBuf) >= 128)
+			RX$ = RemoveByLength(128, Client.SocketRxBuf)                                                       ;
+		Else
+			RX$ = RemoveByLength(Len(Client.SocketRxBuf), Client.SocketRxBuf)                                   ;			
+	}
+	*/		
+}
+
+// _____________________________________________________________________________________________________________ Start Up Code
+Function Main()
+{
+	g_iPort = Default_Port                                                                                      ;
+    g_sIP   = Default_IP                                                                                        ;
+    Port_FB = g_iPort ;
+    IP_FB = g_sIP ;
+//    WaitForInitializationComplete()                                                                ;
+}

@@ -1,0 +1,567 @@
+                                                                                                                                                                                                                                                                                              
+
+// _____________________ Module Compile Time Behavior ________________________________________________________
+#DEFINE_CONSTANT    cMaxValues     99  	//Number of Items in a Preset
+#DEFINE_CONSTANT    cMaxDataSets   64   //Number of Presets
+#Define_Constant    cMaxAttributes 6	//Max Number of Attributes to a preset
+#OUTPUT_SHIFT                      1
+#CATEGORY "9" // Memory
+#ANALOG_SERIAL_EXPAND              InputsWithOutputs
+#DEFAULT_VOLATILE
+#ENABLE_STACK_CHECKING
+//#ENABLE_TRACE
+// #Enable_Dynamic
+// #HELP_PDF_FILE ""
+#HELP_BEGIN
+	
+#HELP_END
+
+// _____________________ Input - Output _______________________________________________________________________
+Digital_Input _SKIP_                 				;
+ANALOG_INPUT Recall,View            				;
+Digital_Input Save									;
+Digital_input Clear_FB								;
+Digital_input _skip_								;
+
+Digital_Input _SKIP_                 				;
+Digital_Input audioSelect							;
+Digital_Input VideoSelect							;
+Digital_Input audioVOLSelect						;
+Digital_Input videoCHANSelect						;
+Digital_input DigitalSelect							;
+Digital_input DigitalSelect2						;
+
+ANALOG_INPUT Audio_zone[cMaxValues]    				;
+ANALOG_INPUT Video_zone[cMaxValues]    				;
+ANALOG_INPUT Audio_Volume[cMaxValues]    			;
+ANALOG_INPUT Video_Channel[cMaxValues]    			;
+
+Digital_Input _SKIP_								;
+digital_input AudioIncludeZ[cMaxValues]  			;
+digital_input VideoIncludeZ[cMaxValues]  			;
+Digital_input DigitalIncludeZ[cMaxValues]  			;
+Digital_input DigitalIncludeZ2[cMaxValues]  		;
+
+String_Input AudioSourceLabel[cMaxValues][64]		;
+String_Input VideoSourceLabel[cMaxValues][64]		;
+
+
+DIGITAL_OUTPUT  Busy_FB   	 						;
+DIGITAL_OUTPUT  Save_Done  							;
+Digital_Output _SKIP_,_skip_						;
+Digital_Output audioSelected						;
+Digital_Output VideoSelected						;
+Digital_Output audioVOLSelected						;
+Digital_Output videoCHANSelected					;
+Digital_Output DigitalSelected						;
+Digital_Output DigitalSelected2						;
+
+Digital_Output _SKIP_								;
+digital_output AudioIncludedZ[cMaxValues]  			;
+digital_output VideoIncludedZ[cMaxValues]  			;
+digital_output DigitalIncludedZ[cMaxValues]  		;
+digital_output DigitalIncludedZ2[cMaxValues]  		;
+
+ANALOG_OUTPUT Audio_Out[cMaxValues]  				;
+Analog_Output Audio_Out_Saved[cMaxValues]			;
+ANALOG_OUTPUT Video_Out[cMaxValues]  				;
+Analog_Output Video_Out_Saved[cMaxValues]			;
+ANALOG_OUTPUT Volume_Out[cMaxValues]  				;
+Analog_Output Volume_Out_Saved[cMaxValues]			;
+ANALOG_OUTPUT Channel_Out[cMaxValues]  				;
+Analog_Output Channel_Out_Saved[cMaxValues]			;
+Digital_Output Digital_Out[cMaxValues]				;
+Digital_Output Digital_Out2[cMaxValues]				;
+digital_output Preset_FB[cMaxDataSets]				;
+string_output	Audio_Source_Saved[cMaxValues]		;
+string_output	Video_Source_Saved[cMaxValues]		;
+Digital_Output  Audio_Vol_Active[cMaxValues]		;
+Digital_Output  Audio_Src_Active[cMaxValues]		;
+Digital_Output  Video_Chan_Active[cMaxValues]		;
+
+structure g_Preset
+{
+  integer g_iaudio[cMaxValues]						;
+  integer g_ivideo[cMaxValues]						;
+  Integer g_ivolume[cMaxValues]						;
+  Integer g_ichannel[cMaxValues]					;
+  Integer g_iAudioZone[cMaxValues]					;
+  Integer g_iVideoZone[cMaxVAlues]					;
+  Integer G_iDigitalZone[cMaxValues]				;
+  Integer G_iDigitalZone2[cMaxValues]				;	
+  integer g_att[6]									;						
+}													;
+
+
+
+// _____________________ Parameters ___________________________________________________________________________
+
+String_Parameter PathFileExt[64]            		;
+
+#BEGIN_PARAMETER_PROPERTIES   PathFileExt
+	propValidUnits   = unitString              		;
+	propDefaultUnit  = unitString                   ;
+#END_PARAMETER_PROPERTIES
+
+// _____________________ Global Varibles _______________________________________________________________________
+
+
+g_preset Preset[cMaxDataSets]						;
+
+
+//_____________________Functions________________________________________________________________________________
+
+Function fViewData()
+{
+	Signed_Integer iHandle, iBytes 																						;
+    integer i,j,k																										;
+	string path[64]																										;
+	string sNone[6]																										;
+  	
+	If(!Busy_FB && View <= cMaxDataSets && View <> 0 )
+		{
+     		Busy_FB = On 																								;
+     		makestring(sNone, "None")																					;
+		
+    		StartFileOperations()																						;		
+        	path = PathFileExt + itoa(view)+ ".dat"																		;                                  
+        	iHandle = FileOpen(path, _O_RDonly|_O_binary) 																;
+        	Readstructure(iHandle, Preset[view],iBytes)        															;			
+			Trace(" %d Bytes read",iBytes)																				;
+        	FileClose(iHandle)                                     														;
+			EndFileOperations()                                    														;
+
+        	for( i = 1 to cMaxValues)
+			{
+               	if(Preset[view].g_iAudioZone[i] = 1)
+					{
+						AudioIncludedZ[i]=on																			;
+					}
+				else
+					{
+						AudioIncludedZ[i]=off																			;
+					}
+                if(Preset[view].g_iVideoZone[i] = 1)
+					{
+						VideoIncludedZ[i]=on																			;
+					}
+				else
+					{
+						VideoIncludedZ[i]=off																			;
+					}
+                if(Preset[view].g_iDigitalZone[i] = 1)
+					{
+						DigitalIncludedZ[i]=on																			;
+					}
+				else
+					{
+						DigitalIncludedZ[i]=off																			;	
+					}
+               	if(Preset[view].g_iDigitalZone2[i] = 1)
+					{
+						DigitalIncludedZ2[i]=on																			;
+					}
+				else
+					{
+						DigitalIncludedZ2[i]=off																		;	
+					}
+                
+				Audio_Out_Saved[i] = Preset[view].g_iaudio[i]															;
+				j = Audio_Out_Saved[i]																					;
+				IF(j=0)
+				{
+					Audio_Source_Saved[i] = sNone																		;	
+				}
+				Else
+				{
+					Audio_Source_Saved[i] = AudioSourceLabel[j]															;
+				}				
+				Video_Out_Saved[i] = Preset[view].g_ivideo[i]															;
+				k = Video_Out_Saved[i]																					;
+				IF(k=0)
+				{
+					Video_Source_Saved[i] = sNone																		;	
+				}
+				Else
+				{
+					Video_Source_Saved[i] = VideoSourceLabel[k]																;
+				}				
+				
+				Volume_Out_Saved[i] = Preset[view].g_ivolume[i]															;
+				Channel_Out_saved[i] = Preset[view].g_ichannel[i]														;
+			}  
+			
+			if(Preset[view].g_att[1] = 1)
+				{
+					audioSelected=on																					;
+				}
+			else
+				{
+					audioSelected=off																					;
+				}
+            if(Preset[view].g_att[2] = 1)
+				{
+					videoSelected=on																					;
+				}
+			else
+				{
+					videoSelected=off																					;
+				}
+            if(Preset[view].g_att[3] = 1)
+				{
+					audioVOLSelected=on																					;
+				}
+			else
+				{
+					audioVOLSelected=off																				;
+				}
+            if(Preset[view].g_att[4] = 1)
+				{
+					videoCHANSelected=on																				;
+				}
+			else
+				{
+					videoCHANSelected=off																				;
+				}
+            if(Preset[view].g_att[5] = 1)
+				{
+					DigitalSelected=on																					;
+				}
+			else
+				{
+					DigitalSelected=off																					;
+				}
+			if(Preset[view].g_att[6] = 1)
+				{
+					DigitalSelected2=on																					;
+				}
+			else
+				{
+					DigitalSelected2=off																					;
+				}
+
+			Busy_FB = Off 																								;
+		}
+}
+
+
+
+// _____________________ Events ________________________________________________________________________________
+
+CHANGE Recall
+{
+	Signed_Integer iHandle, iBytes 																						;
+	Integer i,j 																										;
+	string Path[64]																										;		
+	If(!Busy_FB && Recall <= cMaxDataSets && Recall <> 0)
+	{
+		Busy_FB = On 																									;
+		
+    	StartFileOperations()																							;
+				
+			path = PathFileExt + itoa(Recall)+ ".dat"																	;                                  
+        	iHandle = FileOpen(path, _O_RDonly|_O_binary) 																;
+        	Readstructure(iHandle, Preset[Recall],iBytes)        														;			
+			Trace(" %d Bytes read",iBytes)																				;
+        	FileClose(iHandle)                                     														;
+
+    	EndFileOperations()                                    															;
+    	
+    	If(iBytes > 0)
+    	{
+    		if(Preset[Recall].g_att[1] = 1)
+				{
+        			for(i = 1 to cMaxValues)
+						{
+                         	if(Preset[Recall].g_iAudioZone[i]=1)
+								{
+									Audio_Out[i] = Preset[Recall].g_iaudio[i]											;
+									pulse(50,Audio_Src_Active[i])														;
+									delay(20);
+								}
+						}
+				}
+            if(Preset[Recall].g_att[2] = 1)
+				{
+        			for(i = 1 to cMaxValues)
+						{
+                         	if(Preset[Recall].g_iVideoZone[i]=1)
+								{
+									Video_Out[i] = Preset[Recall].g_ivideo[i]											;
+									delay(20);								
+								}
+						}
+				}
+			if(Preset[Recall].g_att[3] = 1)
+				{
+        			for(i = 1 to cMaxValues)
+						{
+                         	if(Preset[Recall].g_iAudioZone[i]=1)
+								{
+									Volume_Out[i] = Preset[Recall].g_ivolume[i]											;
+									pulse(50,Audio_Vol_Active[i])														;
+									delay(20);
+								}
+						}
+				}
+				if(Preset[Recall].g_att[4] = 1)
+				{
+        			for(i = 1 to cMaxValues)
+						{
+                         	if(Preset[Recall].g_iVideoZone[i]=1)
+								{
+									Channel_Out[i] = Preset[Recall].g_ichannel[i]										;
+									pulse(50,Video_Chan_Active[i])														;
+									delay(20)																			;								
+								}
+						}
+				}
+				if(Preset[Recall].g_att[5] = 1)
+				{
+        			for(i = 1 to cMaxValues)
+						{
+                         	if(Preset[Recall].g_iDigitalZone[i]=1)
+								{
+									pulse(50,Digital_Out[i])															; 
+									delay(200)   ;
+								}
+						}
+                 }
+				if(Preset[Recall].g_att[6] = 1)
+				{
+        			for(i = 1 to cMaxValues)
+						{
+                         	if(Preset[Recall].g_iDigitalZone2[i]=1)
+								{
+									pulse(50,Digital_Out2[i])															;
+								}
+						}
+                 }
+		
+					
+				for(j = 1 to cMaxDataSets)
+					{
+						if(Recall =j)
+							{
+								Preset_FB[Recall] = 1																	;
+							}
+                       	else
+							{ 
+								Preset_FB[Recall] = 0																	;
+							}
+					}					
+    	}
+    	
+    	Busy_FB = OFF 																									;
+    }
+}
+
+
+Change View
+{
+	fViewData()																											;
+}
+
+
+Push Save
+{
+    Signed_Integer iHandle, iBytes 																						;
+	Integer i,j,k 																										;
+	string path[64]																										;
+		
+	If(!Busy_FB && View <= cMaxDataSets && View <> 0 )
+	{
+		Busy_FB = On ;
+		
+		For(i = 1 To cMaxValues Step 1)
+   		{
+			Preset[View].g_iaudio[i] = Audio_zone[i]																	;
+ 			Preset[View].g_ivideo[i] = Video_zone[i]																	;
+            Preset[View].g_ivolume[i] = Audio_Volume[i]																	;
+            Preset[View].g_ichannel[i] = Video_Channel[i]																;
+			if(AudioIncludedZ[i])
+				{
+					Preset[View].g_iAudioZone[i] = 1																	;
+				}
+			else
+				{
+					Preset[View].g_iAudioZone[i] = 0																	;
+				}
+	 		if(VideoIncludedZ[i])
+				{
+					Preset[View].g_iVideoZone[i] = 1																	;
+				}
+            else
+				{
+					Preset[View].g_iVideoZone[i] = 0																	;
+				}
+            if(DigitalIncludedZ[i])
+				{
+					Preset[View].g_iDigitalZone[i] = 1																	;
+				}
+            else
+				{
+					Preset[View].g_iDigitalZone[i] = 0																	;
+				}
+				
+			if(DigitalIncludedZ2[i])
+				{
+					Preset[View].g_iDigitalZone2[i] = 1																	;
+				}
+            else
+				{
+					Preset[View].g_iDigitalZone2[i] = 0																	;
+				}						
+   		}
+			if(audioSelected)
+				{
+					Preset[View].g_att[1] = 1																			;
+				}
+			else
+				{
+					Preset[View].g_att[1] = 0																			;
+				}
+	 		if(videoSelected)
+				{
+					Preset[View].g_att[2] = 1																			;
+				}
+			else
+				{
+					Preset[View].g_att[2] = 0																			;
+				}
+			if(audioVOLSelected)
+				{
+					Preset[View].g_att[3] = 1																			;
+				}
+			else
+				{
+					Preset[View].g_att[3] = 0																			;
+				}
+	 		if(videoCHANSelected)
+				{
+					Preset[View].g_att[4] = 1																			;
+				}
+			else
+				{
+					Preset[View].g_att[4] = 0																			;
+				}
+			if(DigitalSelected)
+				{
+					Preset[View].g_att[5] = 1																			;
+				}
+			else
+				{
+					Preset[View].g_att[5] = 0																			;
+				}
+            if(DigitalSelected2)
+				{
+					Preset[View].g_att[6] = 1																			;
+				}
+			else
+				{
+					Preset[View].g_att[6] = 0																			;
+				}
+
+		
+    	StartFileOperations() ;
+		
+			
+			    path = PathFileExt + itoa(View)+ ".dat"																	;                            
+        		iHandle = FileOpen(path, _O_Creat | _O_Trunc |_O_RDWR|_O_binary) 										;
+        		Writestructure(iHandle, Preset[View],iBytes)        													;
+				trace(" %d Bytes Written",iBytes)																		;
+        		FileClose(iHandle)                                     													;
+					        
+    	EndFileOperations()                                    															;
+    	
+    	If(iBytes > 0)
+    	{
+    		Pulse(50, Save_Done) 																						;
+    		Trace("Saved Preset:%d", View) 																				;		
+    	}
+    	
+    	Busy_FB = OFF 																									;
+    }
+
+	fViewData()																											;
+}
+
+Push audioselect
+	{
+ 		if(audioSelected = off){audioSelected=on;}
+		else audioselected = off;
+	}
+Push Videoselect
+	{
+ 		if(videoSelected = off){videoSelected=on;}
+		else videoselected = off;
+	}
+Push audioVOLselect
+	{
+ 		if(audioVOLSelected = off){audioVOLSelected=on;}
+		else audioVOLselected = off;
+	}
+Push VideoCHANselect
+	{
+ 		if(videoCHANSelected = off){videoCHANSelected=on;}
+		else videoCHANselected = off;
+	}
+Push Digitalselect
+	{
+ 		if(digitalSelected = off){digitalSelected=on;}
+		else digitalselected = off;
+	}
+Push Digitalselect2
+	{
+ 		if(digitalSelected2 = off){digitalSelected2=on;}
+		else digitalselected2 = off;
+	}	
+Push AudioIncludeZ
+	{
+ 		integer i;
+		i = getlastmodifiedarrayindex();
+    	if(AudioIncludedZ[i] = off){AudioIncludedZ[i]=on;}
+		else AudioIncludedZ[i] = off;
+	}
+Push VideoIncludeZ
+	{
+ 		integer i;
+		i = getlastmodifiedarrayindex();
+    	if(VideoIncludedZ[i] = off){VideoIncludedZ[i]=on;}
+		else VideoIncludedZ[i] = off;
+	}
+Push DigitalIncludeZ
+	{
+ 		integer i;
+		i = getlastmodifiedarrayindex();
+    	if(DigitalIncludedZ[i] = off){DigitalIncludedZ[i]=on;}
+		else DigitalIncludedZ[i] = off;
+	}
+Push DigitalIncludeZ2
+	{
+ 		integer i;
+		i = getlastmodifiedarrayindex();
+    	if(DigitalIncludedZ2[i] = off){DigitalIncludedZ2[i]=on;}
+		else DigitalIncludedZ2[i] = off;
+	}
+
+
+Push Clear_FB
+	{
+		integer i;
+		for(i = 1 to CmaxValues step 1)
+		{
+			Preset_FB[i] = 0;
+		}			
+	}
+
+
+
+// _____________________ Start Up Code __________________________________________________________________________
+Function Main()
+{
+    // Integer i ;
+	// WaitForInitializationComplete();
+}
+
+

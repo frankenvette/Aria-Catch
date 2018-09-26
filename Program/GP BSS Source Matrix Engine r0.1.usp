@@ -1,0 +1,158 @@
+/* GreenPoint TDI 
+
+Development Notes _________________________________________________________________________ Development Notes /*
+Dealer Name:	Crestron Electronics
+System Name:
+System Number:
+Programmer:		PAC
+Comments:
+
+v0.1  : Bug Fix - Parsing crestron internal delimiter now pulls in all trailing \x03 chrs. Prevents controls
+			from breaking when their last data byte is \x03, also prevents error posts of accessing array out
+			of bounds.
+
+v0.0  : Release
+
+
+Notes :
+Source matrix objects can have 2 to 128 inputs
+Source matrix objects can have 2 to 128 inputs
+
+
+Development Notes _________________________________________________________________________ Development Notes */
+
+// ________________________________________________________________________________ Module Compile Time Behavior
+//#DEFINE_CONSTANT cDebug  1
+//#SYMBOL_NAME "BSS Soundweb London Source Matrix v4.0"
+#CATEGORY                "34"
+#Output_Shift            2
+#ANALOG_SERIAL_EXPAND    InputsWithOutputs
+#DEFAULT_VOLATILE
+#ENABLE_STACK_CHECKING
+
+// ___________________________________________________________________________________________________ Constants
+#DEFINE_CONSTANT cBoolean_On      "\x01"
+#DEFINE_CONSTANT cBoolean_Off     "\x00"
+#DEFINE_CONSTANT cMax_Out          128
+
+// _____________________________________________________________________________________________________ F1 Help
+//#HINT                              ""
+//#HELP_PDF_FILE ""
+
+#HELP_BEGIN
+
+#HELP_END
+// ________________________________________________________________________________________ Simpl Input - Output 
+DIGITAL_INPUT _SKIP_                          ;
+DIGITAL_INPUT Subscribe                       ;
+BUFFER_INPUT  RX$[400]                        ;
+STRING_INPUT  Object_ID[3]                    ;
+
+Analog_Input  In_For_Out[cMax_Out]            ;
+
+String_Output TX$                             ;
+String_Output Object_ID_FB                    ;
+ANALOG_OUTPUT In_For_Out_FB[cMax_Out]         ;
+
+// _____________________________________________________________________________________________ Global Varibles
+String  g_sReply[40]           ;
+String  g_sObject_ID[3]        ;
+
+Integer g_iRx_OK               ;
+Integer g_iStateVar            ; 
+Integer g_iNum_Out_Used        ;
+
+// __________________________________________________________________________________________________ Parameters
+String_Parameter Default_Object_ID[3]                                                             ;
+#BEGIN_PARAMETER_PROPERTIES Default_Object_ID
+	propValidUnits       = unitString                                                             ;
+	propDefaultUnit      = unitString                                                             ;
+	propDefaultValue     = "\x00\x00\x00"                                                         ;
+	propShortDescription = "3 Hex Characters retrieved from the .architect file"                  ;
+#END_PARAMETER_PROPERTIES
+
+// ___________________________________________________________________________________________________ Functions
+
+// ________________________________________________________________________________________________ Simpl Events
+Change In_For_Out
+{
+	Integer iOut ;         
+	
+	iOut        = GetLastModifiedArrayIndex() ;
+	g_iStateVar =  iOut - 1                   ;
+
+	MakeString(TX$, "\x88\x00\x00\x03%s\x00%s\x00\x00\x00%s\x03\x03\x03\x03\x03", g_sObject_ID, Chr(g_iStateVar), Chr(In_For_Out[iOut]));
+	If(Subscribe)
+	{
+  		MakeString(TX$, "\x89\x00\x00\x03%s\x00%s\x00\x00\x00\x00\x03\x03\x03\x03\x03", g_sObject_ID, Chr(g_iStateVar));
+		ProcessLogic();  	
+	}
+}
+  
+Push Subscribe
+{
+	Integer i ;
+		
+	For(i = 1 To g_iNum_Out_Used Step 1)
+	{
+		MakeString(TX$, "\x89\x00\x00\x03%s\x00%s\x00\x00\x00\x00\x03\x03\x03\x03\x03", g_sObject_ID, Chr(i - 1));
+		ProcessLogic();
+	}
+}
+
+Release Subscribe
+{
+	Integer i ;
+	
+	For(i = 1 To g_iNum_Out_Used Step 1)
+	{
+		MakeString(TX$, "\x8A\x00\x00\x03%s\x00%s\x00\x00\x00\x00\x03\x03\x03\x03\x03", g_sObject_ID, Chr(i - 1));
+		ProcessLogic();
+	}
+}
+
+Change RX$
+{
+	If(g_iRx_OK)
+	{	
+		g_iRx_OK = 0;
+		While(Find("\x03\x03\x03\x03\x03", RX$))
+		{ 
+			g_sReply = Remove("\x03\x03\x03\x03\x03", RX$)                                              ;
+		
+			While(Len(RX$) && Byte(RX$, 1) = 3 )
+			{
+				g_sReply = g_sReply + RemoveByLength(1, RX$)                                            ;
+			}
+				
+			If((Mid(g_sReply, 6, 3) = "\x00\x00\x00") || (Mid(g_sReply, 6, 3) = g_sObject_ID))
+			{
+				In_For_Out_FB[Byte(g_sReply, 10) + 1] = Byte(g_sReply, 14);
+			}
+		}
+		g_iRx_OK = 1;
+	}	
+}
+
+Change Object_ID
+{
+	If(Len(Object_ID) = 3)
+	{
+		g_sObject_ID = Object_ID         ;
+		Object_ID_FB = g_sObject_ID      ;
+	}
+}
+
+// ________________________________________________________________________________________________ Start Up Code
+Function Main()
+{
+	For(g_iNum_Out_Used = cMax_Out To 1 Step -1)
+	{
+		If(IsSignalDefined(In_For_Out[g_iNum_Out_Used])) Break ;
+	}
+	
+	g_sObject_ID = Default_Object_ID ;	
+	Object_ID_FB = g_sObject_ID      ;
+	
+	g_iRx_OK = 1;
+}

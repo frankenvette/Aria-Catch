@@ -1,0 +1,23 @@
+<?xml version="1.0"?>
+<dspConfig>
+	<obj L="Source Selector-01"		 							HQA="0x80E90300011B"/>
+	<obj L="Source Selector-02" 								HQA="0x80E90300011E"/>
+	<obj L="Source Selector-03"		 							HQA="0x80E903000102"/>
+	<obj L="Source Selector-04" 								HQA="0x80E903000122"/>
+	<obj L="Source Selector-05"		 							HQA="0x80E903000124"/>
+	<obj L="Source Selector-06" 								HQA="0x80E903000126"/>
+	<obj L="Source Selector-07"		 							HQA="0x80E903000120"/>
+	<obj L="Source Selector-08" 								HQA="0x80E903000128"/>
+	<obj L="Source Selector-09"		 							HQA="0x80E90300011C"/>
+	<obj L="Source Selector-10" 								HQA=""/>
+	<obj L="Gain-01"			 								HQA="0x80E90300011D"/>
+	<obj L="Gain-02"			 								HQA="0x80E90300011F"/>
+	<obj L="Gain-03"			 								HQA="0x80E903000119"/>
+	<obj L="Gain-04"			 								HQA="0x80E903000123"/>
+	<obj L="Gain-05"			 								HQA="0x80E903000125"/>
+	<obj L="Gain-06"			 								HQA="0x80E903000127"/>
+	<obj L="Gain-07"			 								HQA="0x80E903000121"/>
+	<obj L="Gain-08"			 								HQA="0x80E903000129"/>
+	<obj L="Gain-09"			 								HQA="0x80E90300011A"/>
+	<obj L="Gain-10"			 								HQA=""/>
+</dspConfig>

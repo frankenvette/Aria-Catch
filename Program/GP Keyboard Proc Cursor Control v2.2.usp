@@ -1,0 +1,225 @@
+// RBP
+/*!---- Development Notes ---------------------------------------------------->
+  Original was CRR's IBM Full Keyboard(cm) .cmc in the crestron database.
+  This module started as a 'save as' from the keyboard processor.
+  Intention was to give full Cursor control inside a indirect text box.
+  
+  Future Development
+  use of up and down arrows with a max character of 240.
+  Wish List - incorporate a Ctrl key and clipboard.
+
+v1.0   : Added Cursor control 10/23/08
+v1.1   : Added Extra serial inputs for prefixing and suffixing  06/22/09
+v2.1   : Added Text$ String_Output (no cursor) : was in .umc
+			Jumped rev to match .umc rev  06/22/09
+v2.2   : Fixed bug where cursor appeared in the TEXT$ output if the cursor was
+			at BOF  05/21/10			   
+//----- Development Notes -------------------------------------------------->*/
+    
+// Compiler Directives_________________________________________________________
+//#SYMBOL_NAME             "Keyboard Proc Cursor Control v2.1"
+#HINT                    "Keyboard Controls Left/Right/Home/End with a Cursor"
+#CATEGORY                "10"
+#DEFINE_CONSTANT   cCRSR "|" 
+#DEFAULT_VOLATILE
+
+#HELP_BEGIN
+Intended to be used inside the with KeyBoard with Cursor.umc
+Use with an indirect text box that has word wrap enabled.	
+#HELP_END
+
+// Input - Output_______________________________________________________________                
+DIGITAL_INPUT KeyboardGo, Enable_Mask                                          , 
+			  Clear     , Back                                                 , 
+			  CursorLeft, CursorRight                                          , 
+			  Home      , End                                                  ; 
+ANALOG_INPUT  MaxCharacters                                                    , 
+			  KeyboardAn                                                       ;
+STRING_INPUT  Text[240]                                                        ;
+String_Input  Prepend_Text[240]                                                ;
+String_Input  Append_Text[240]                                                 ;
+String_Input  Insert_Text[240]                                                 ;
+
+STRING_OUTPUT Text_Cursor$                                                     ;
+String_Output Text$                                                            ;                
+STRING_OUTPUT Text_Masked$                                                     ; 
+
+// Global Variables_____________________________________________________________
+INTEGER g_iLength, g_iCursor                                                   ;
+STRING  g_sLeft[240]                                                           ;
+
+// EVENTS_______________________________________________________________________
+PUSH CursorRight
+{
+	Integer iC[1]                                                              ;
+		
+	If(g_iCursor > 1 && g_iCursor <> g_iLength)
+	{
+		g_sLeft = RemoveByLength(g_iCursor - 1,Text)                           ;
+		iC[0] = GetC(Text)                                                     ;
+		iC[1] = GetC(Text)                                                     ;
+		Text_Cursor$ = g_sLeft + Chr(iC[1]) + Chr(iC[0]) + Text                ;
+	}
+	Else If(g_iCursor = 1 && Len(Text) > 1)
+	{
+		iC[0] = GetC(Text)                                                     ;
+		iC[1] = GetC(Text)                                                     ;
+		Text_Cursor$ = Chr(iC[1]) + Chr(iC[0]) + Text                          ;
+	}
+}
+PUSH CursorLeft
+{
+	Integer iC[1]                                                              ;
+		
+	If(g_iCursor > 2)
+	{
+		g_sLeft = RemoveByLength(g_iCursor - 2,Text)                           ;
+		iC[0] = GetC(Text)                                                     ;
+		iC[1] = GetC(Text)                                                     ;
+		Text_Cursor$ = g_sLeft + Chr(iC[1]) + Chr(iC[0]) + Text                ;
+	}
+	Else If(g_iCursor > 1)
+	{
+		iC[0] = GetC(Text)                                                     ;
+		iC[1] = GetC(Text)                                                     ;
+		Text_Cursor$ = Chr(iC[1]) + Chr(iC[0]) + Text                          ;
+	}
+}
+
+PUSH KeyboardGo
+{	
+	If(g_iLength < MaxCharacters)
+	{
+    	If(g_iCursor = g_iLength)//Cursor is EOF. 
+		{	//Append new character just before PIPE'|' and send to simpl			
+			Text_Cursor$ = Left(Text, g_iLength - 1) + chr(KeyboardAn) + cCRSR ;
+			Text$ = Left(Text, g_iLength - 1) + chr(KeyboardAn)                ; 
+		}
+		Else If(g_iCursor = 1)//Cursor is BOF
+		{	//Prefix new character
+			Text_Cursor$ = chr(KeyboardAn) + Text                              ; 
+			Text$ = chr(KeyboardAn) + Right(Text, Len(Text) - 1)               ;
+		}
+		Else   
+		{   //Insert new character just before PIPE'|' and send to simpl
+			g_sLeft = RemoveByLength(g_iCursor - 1, Text)                      ;
+			Text_Cursor$ = g_sLeft + chr(KeyboardAn) + Text                    ; 
+			Text$ = g_sLeft + chr(KeyboardAn) + Right(Text, Len(Text) - 1)     ;
+		}
+	} 
+}
+PUSH Home
+{
+	Integer iC                                                                 ;
+	
+	If(g_iCursor > 1)
+	{
+		g_sLeft = RemoveByLength(g_iCursor - 1, Text)                          ;
+		iC    = GetC(Text)                                                     ;
+		Text_Cursor$ = cCRSR + g_sLeft + Text                                  ;
+	}
+}
+PUSH End
+{
+	Integer iC                                                                 ;
+	
+	If(g_iCursor > 1 && g_iCursor <> g_iLength)
+	{
+		g_sLeft = RemoveByLength(g_iCursor - 1, Text)                          ;
+		iC    = GetC(Text)                                                     ;
+		Text_Cursor$ = g_sLeft + Text + cCRSR                                  ;
+	}
+	Else If(g_iCursor = 1)
+	{
+		iC    = GetC(Text)                                                     ;
+		Text_Cursor$ = Text + cCRSR                                            ;
+	}
+}
+PUSH Clear
+{
+	Text_Cursor$ = cCRSR                                                       ;
+	Text$ = ""                                                                 ;
+}
+    
+PUSH Back
+{
+	If(g_iCursor > 2)
+	{
+		g_sLeft = RemoveByLength(g_iCursor - 2, Text)                          ;
+		Text_Cursor$ = g_sLeft + Right(Text, Len(Text) - 1)                    ;
+		Text$ = g_sLeft + Right(Text, Len(Text) - 2)                           ; 
+	}
+	Else IF(g_iCursor = 2)
+	{
+		Text_Cursor$ = Right(Text, Len(Text) - 1)                              ;
+		Text$ = Right(Text, Len(Text) - 2)                                     ;
+	}
+}
+Change Text
+{
+	Integer i                                                                  ;
+	String  sMask[240]                                                         ;
+	
+	g_iCursor = Find(cCRSR,Text)                                               ;
+	g_iLength = Len(Text)                                                      ;
+	If(g_iCursor = 0)
+	{
+		Text_Cursor$ = Text + cCRSR                                            ;
+	}
+	If(Enable_Mask)
+	{
+		If(Len(Text) > 1)
+		{
+			For(i = 1 To Len(Text) - 1 Step 1 )
+			{
+				sMask = sMask + "*"                                            ;
+			}
+			Text_Masked$ = sMask                                               ;
+		}
+		Else
+		{
+			Text_Masked$ = ""                                                  ;
+		}
+	}
+}
+Change Prepend_Text
+{
+	Text_Cursor$ = Prepend_Text + Text                                         ;
+	Text$ = Prepend_Text + Left(Text, Find(cCRSR, Text) - 1) + Right(Text, Len(Text) - Find(cCRSR, Text));
+}
+Change Append_Text
+{
+	Text_Cursor$ = Text + Append_Text                                          ;
+	Text$ = Left(Text, Find(cCRSR, Text) - 1) + Right(Text, Len(Text) - Find(cCRSR, Text)) + Append_Text ;
+}
+Change Insert_Text
+{
+	If(g_iCursor)
+	{
+		If(g_iCursor = 1)
+		{
+			Text_Cursor$ = Insert_Text + Text                                  ;
+			Text$ = Insert_Text                                                ;
+		}
+/*		Else If(g_iCursor = 2) //Looking to solve the bug : Tab away from a field that has a single char in it
+		{
+			g_sLeft = RemoveByLength(g_iCursor - 1, Text)                      ;			
+			Text_Cursor$ = g_sLeft + Insert_Text + Text                        ;
+			Text$ = g_sLeft + Insert_Text + Right(Text, Len(Text) - 1)         ;
+		}*/
+		Else
+		{
+			g_sLeft = RemoveByLength(g_iCursor - 1, Text)                      ;			
+			Text_Cursor$ = g_sLeft + Insert_Text + Text                        ;
+			Text$ = g_sLeft + Insert_Text + Right(Text, Len(Text) - 1)         ;			
+		}		
+	}	
+}	
+// Start Up Code_______________________________________________________________
+Function Main()
+{
+    Text_Cursor$ = cCRSR                                                       ;
+    Text$ = ""                                                                 ;
+}
+
+
